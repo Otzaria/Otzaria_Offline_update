@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:path/path.dart' as p;
 import 'package:plugins_manager/plugins_manager.dart';
 import 'package:test/test.dart';
 
@@ -45,6 +46,45 @@ Map<String, dynamic> _plugin(String id, String version) => {
       'status': 'stable',
       'downloadUrl': '/api/plugins/$id/download',
     };
+
+final class _BuildProbeOverrides extends IOOverrides {
+  final operations = <(String, String)>[];
+
+  @override
+  File createFile(String path) {
+    final file = super.createFile(path);
+    return path.endsWith('.otzplugin') ? _ProbedFile(file, operations) : file;
+  }
+}
+
+class _ProbedFile implements File {
+  _ProbedFile(this.real, this.operations);
+
+  final File real;
+  final List<(String, String)> operations;
+
+  @override
+  Future<bool> exists() {
+    operations.add((real.path, 'exists'));
+    return real.exists();
+  }
+
+  @override
+  Future<int> length() {
+    operations.add((real.path, 'length'));
+    return real.length();
+  }
+
+  @override
+  Future<FileStat> stat() {
+    operations.add((real.path, 'stat'));
+    return real.stat();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
 
 void main() {
   sandboxRealDataRoot();
@@ -313,6 +353,76 @@ void main() {
         ['/api/plugins/a/download'],
       );
     });
+  });
+
+  group('בדיקות דיסק לפי יעדי ההורדה', () {
+    for (final (appVersions, targets) in [
+      (<String>[], ['2.0.0']),
+      (['0.9.96', '0.9.97', '0.9.97'], ['1.5.0', '2.0.0']),
+      (['0.9.80'], <String>[]),
+    ]) {
+      test('רק בילדי היעד נבדקים פעם אחת: $appVersions', () async {
+        final remote = {
+          ..._plugin('a', '2.0.0'),
+          'versions': [
+            for (final (version, minimum) in [
+              ('2.0.0', '0.9.97'),
+              ('1.5.0', '0.9.95'),
+              for (var i = 8; i > 0; i--) ('0.$i.0', '0.9.90'),
+            ])
+              {
+                'version': version,
+                'compatibleWith': minimum,
+                'downloadUrl': '/api/plugins/a@$version/download',
+              },
+          ],
+        };
+        final store = PluginMirrorStore(temp.path);
+        final local = <StorePlugin>[];
+        for (final raw in [
+          remote,
+          _plugin('removed', '1.0.0'),
+          _plugin('אלף', '1.0.0')
+        ]) {
+          final plugin = StorePlugin.fromApi(raw, 'https://otzaria.test');
+          final files = <String, PluginLocalFile>{};
+          for (final build in plugin.versionEntries) {
+            final relative =
+                'files/${plugin.id}/plugin-${build.version}.otzplugin';
+            final file = File(store.absolutePath(relative));
+            file.parent.createSync(recursive: true);
+            file.writeAsBytesSync([1]);
+            files[build.version] = PluginLocalFile(
+              relativePath: relative,
+              fileName: p.basename(relative),
+              ext: '.otzplugin',
+              size: 1,
+              sourceUrl: build.downloadUrl,
+            );
+          }
+          local.add(plugin.copyWith(localFiles: files));
+        }
+        await store.save(PluginCatalog(plugins: local));
+        final site = _Site([remote, remote, _plugin('אלף', '1.0.0')]);
+        final disk = _BuildProbeOverrides();
+
+        final status = await IOOverrides.runWithIOOverrides(
+          () => manager(site).peekOnlineUpdates(appVersions: appVersions),
+          disk,
+        );
+
+        expect(status.newPlugins, isEmpty);
+        expect(status.updatedPlugins, isEmpty);
+        expect(status.missingPlugins, isEmpty);
+        expect(status.removedPlugins, ['תוסף removed']);
+        expect(status.totalOnline, 3);
+        expect(site.requests, ['/api/plugins']);
+        expect(disk.operations, [
+          for (final version in targets)
+            (store.absolutePath('files/a/plugin-$version.otzplugin'), 'stat'),
+        ]);
+      });
+    }
   });
 
   group('גודל ההורדה הצפויה', () {

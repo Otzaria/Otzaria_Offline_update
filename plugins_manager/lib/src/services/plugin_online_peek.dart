@@ -6,6 +6,11 @@ import 'plugin_mirror_store.dart';
 import 'plugin_mirror_sync.dart';
 import 'plugin_store_client.dart';
 
+typedef _PluginTargets = ({
+  StorePlugin plugin,
+  List<PluginVersionEntry> builds,
+});
+
 /// "יש משהו חדש בחנות?" — קריאת מטא-דאטה אחת מול הקטלוג שכבר במראה, בלי
 /// להוריד נכס ובלי לכתוב דבר. המקבילה של `peekLatestOnlineVersion` בספרייה,
 /// והיא זו שמזינה את הנדנוד "יש עדכונים ברשת" שבדף הבית.
@@ -20,41 +25,61 @@ class PluginOnlinePeek {
   Future<PluginsOnlineStatus> peek({
     List<String> appVersions = const [],
   }) async {
-    final remote = await client.fetchCatalog();
+    final remote = _prepare(
+      await client.fetchCatalog(),
+      client.baseUrl,
+      appVersions,
+    );
     final local = await store.load();
-
     final present = <String, Set<String>>{};
-    for (final plugin in local.plugins) {
-      final have = <String>{};
-      for (final entry in plugin.localFiles.entries) {
-        if (await store.hasFileFor(plugin, entry.key) &&
-            await store.hasBuild(entry.value)) {
-          have.add(entry.key);
-        }
-      }
-      present[plugin.id] = have;
-    }
-
+    final checked = <(String, String)>{};
     final pendingMedia = <String>{};
     final mirrored = {for (final plugin in local.plugins) plugin.id: plugin};
     final sync = PluginMirrorSync(client: client, store: store);
-    for (final raw in remote) {
-      final plugin = StorePlugin.fromApi(raw, client.baseUrl);
+    for (final entry in remote) {
+      final plugin = entry.plugin;
       if (!plugin.hasValidId) continue;
-      if (await sync.hasPendingMedia(plugin, mirrored[plugin.id])) {
+      final known = mirrored[plugin.id];
+      if (known != null) {
+        final have = present.putIfAbsent(plugin.id, () => <String>{});
+        for (final target in entry.builds) {
+          if (checked.add((plugin.id, target.version)) &&
+              await store.hasInstallableBuild(
+                known.localFileFor(target.version),
+              )) {
+            have.add(target.version);
+          }
+        }
+      }
+      if (await sync.hasPendingMedia(plugin, known)) {
         pendingMedia.add(plugin.id);
       }
     }
 
-    return compare(
+    return _compare(
       remote: remote,
       local: local,
       presentBuilds: present,
       pendingMedia: pendingMedia,
-      baseUrl: client.baseUrl,
-      appVersions: appVersions,
     );
   }
+
+  static List<_PluginTargets> _prepare(
+    List<Map<String, dynamic>> remote,
+    String baseUrl,
+    List<String> appVersions,
+  ) =>
+      remote.map((raw) {
+        final plugin = StorePlugin.fromApi(raw, baseUrl);
+        return (
+          plugin: plugin,
+          builds: [
+            if (plugin.hasValidId)
+              for (final target in plugin.targetsFor(appVersions))
+                if (target.downloadUrl.isNotEmpty) target,
+          ],
+        );
+      }).toList(growable: false);
 
   /// ההשוואה עצמה, בלי רשת ובלי דיסק — [presentBuilds] הן, לכל מזהה תוסף,
   /// גרסאות הבילד שהקובץ שלהן נמצא בפועל במראה.
@@ -69,6 +94,19 @@ class PluginOnlinePeek {
     required Map<String, Set<String>> presentBuilds,
     List<String> appVersions = const [],
     Set<String> pendingMedia = const {},
+  }) =>
+      _compare(
+        remote: _prepare(remote, baseUrl, appVersions),
+        local: local,
+        presentBuilds: presentBuilds,
+        pendingMedia: pendingMedia,
+      );
+
+  static PluginsOnlineStatus _compare({
+    required List<_PluginTargets> remote,
+    required PluginCatalog local,
+    required Map<String, Set<String>> presentBuilds,
+    required Set<String> pendingMedia,
   }) {
     final mirrored = {for (final plugin in local.plugins) plugin.id: plugin};
     final fresh = <String>[];
@@ -83,17 +121,12 @@ class PluginOnlinePeek {
       }
     }
 
-    for (final raw in remote) {
-      final plugin = StorePlugin.fromApi(raw, baseUrl);
+    for (final entry in remote) {
+      final plugin = entry.plugin;
       remoteIds.add(plugin.id);
       if (!plugin.hasValidId) continue;
 
-      final targets = [
-        // תוסף שאין לו קובץ להוריד בכלל אינו "חסר" — אין מה להביא לו.
-        for (final target in plugin.targetsFor(appVersions))
-          if (target.downloadUrl.isNotEmpty) target,
-      ];
-
+      final targets = entry.builds;
       final known = mirrored[plugin.id];
       if (known == null) {
         // תוסף שאין לו אף בילד שירוץ על מה שבכונן אינו "חדש": סנכרון לא

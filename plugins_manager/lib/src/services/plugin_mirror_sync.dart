@@ -656,9 +656,7 @@ class PluginMirrorSync {
     StorePlugin? previous,
   ) async {
     final local = plugin.localFileFor(target.version);
-    if (local == null ||
-        !await store.hasFileFor(plugin, target.version) ||
-        !await store.hasBuild(local)) {
+    if (local == null || !await store.hasInstallableBuild(local)) {
       return null;
     }
     final expected = target.sha256;
