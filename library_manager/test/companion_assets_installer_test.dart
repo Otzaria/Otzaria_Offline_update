@@ -1007,11 +1007,48 @@ void main() {
       final repair = await installer.install(
         mirrorDir: mirrorDir,
         dbPath: dbPath,
+        delivered: delivered,
       );
       expect(
         repair.outcomes[CompanionAsset.talmud],
         CompanionInstallOutcome.installed,
       );
+      expect(await pending(delivered), isEmpty);
+    });
+
+    test('סריקת התלמוד כוללת תיקיות משנה ומדלגת על קישורים וסימונים', () async {
+      const marker = 'v1';
+      const name = 'talmud.tar.zst';
+      final talmud = p.join(
+        libraryDir,
+        CompanionAssetsInstaller.talmudFolderName,
+      );
+      final subdir = await Directory(
+        p.join(talmud, 'sub'),
+      ).create(recursive: true);
+      await File(p.join(mirrorDir, name)).writeAsBytes([1]);
+      await writeManifest({
+        'talmud': {'fileName': name, 'size': 1, 'tag': marker},
+      });
+      await File(p.join(talmud, '.version')).writeAsString(marker);
+      await File(
+        p.join(talmud, '.version.contents'),
+      ).writeAsString(jsonEncode({'marker': marker, 'files': 2, 'bytes': 4}));
+      await File(p.join(subdir.path, 'first.pdf')).writeAsBytes([1, 2]);
+      final external = await File(
+        p.join(tempDir.path, 'external.pdf'),
+      ).writeAsBytes([3, 4, 5]);
+      try {
+        await Link(p.join(talmud, 'linked.pdf')).create(external.path);
+      } on FileSystemException {
+        if (!Platform.isWindows) rethrow;
+        markTestSkipped('Symbolic links are unavailable');
+        return;
+      }
+
+      const delivered = {CompanionAsset.talmud: marker};
+      expect(await pending(delivered), {CompanionAsset.talmud});
+      await File(p.join(subdir.path, 'second.pdf')).writeAsBytes([6, 7]);
       expect(await pending(delivered), isEmpty);
     });
 

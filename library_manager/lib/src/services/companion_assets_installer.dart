@@ -1142,16 +1142,20 @@ void _verifyAndStampCatalog(String path, int? version, AppLanguage language) {
   }
 }
 
-({int files, int bytes}) _scanTalmudFolder(String path, Set<String> skip) {
+Future<({int files, int bytes})> _scanTalmudFolder(
+  String path,
+  Set<String> skip,
+) async {
   final dir = Directory(path);
   if (!dir.existsSync()) return (files: 0, bytes: 0);
   var files = 0;
   var bytes = 0;
-  for (final entity in dir.listSync(recursive: true, followLinks: false)) {
+  await for (final entity in dir.list(recursive: true, followLinks: false)) {
     if (entity is! File) continue;
     if (skip.contains(p.basename(entity.path))) continue;
     files++;
     try {
+      // This runs in the worker isolate, avoiding an async request per file.
       bytes += entity.lengthSync();
     } catch (_) {}
   }
