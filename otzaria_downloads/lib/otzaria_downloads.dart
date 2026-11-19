@@ -44,43 +44,49 @@ Future<FileDownloadResult> downloadFile({
   int maxAttempts = 2,
   bool calculateSha256 = false,
 }) async {
-  for (var attempt = 0;; attempt++) {
-    try {
-      return await _downloadFile(
-        client: client,
-        url: url,
-        destinationPath: destinationPath,
-        statusError: statusError,
-        sizeError: sizeError,
-        expectedSize: expectedSize,
-        connectTimeout: connectTimeout,
-        stallTimeout: stallTimeout,
-        onProgress: onProgress,
-        checkCancelled: checkCancelled,
-        keepPartialOnCancel: keepPartialOnCancel,
-        calculateSha256: calculateSha256,
-      );
-    } on FileSystemException catch (error, stack) {
-      checkCancelled?.call();
-      if (!isStorageFull(error)) rethrow;
-      Error.throwWithStackTrace(
-        StorageFullException(
-          dir: File(destinationPath).parent.path,
-          cause: error,
-        ),
-        stack,
-      );
-    } catch (error) {
-      checkCancelled?.call();
-      if (attempt + 1 >= maxAttempts ||
-          (error is! TimeoutException &&
-              error is! SocketException &&
-              error is! http.ClientException) ||
-          !await File('$destinationPath.resume').exists()) {
-        rethrow;
+  final cancellation =
+      checkCancelled == null ? null : _DownloadCancellation(checkCancelled);
+  try {
+    for (var attempt = 0;; attempt++) {
+      try {
+        return await _downloadFile(
+          client: client,
+          url: url,
+          destinationPath: destinationPath,
+          statusError: statusError,
+          sizeError: sizeError,
+          expectedSize: expectedSize,
+          connectTimeout: connectTimeout,
+          stallTimeout: stallTimeout,
+          onProgress: onProgress,
+          cancellation: cancellation,
+          keepPartialOnCancel: keepPartialOnCancel,
+          calculateSha256: calculateSha256,
+        );
+      } on FileSystemException catch (error, stack) {
+        cancellation?.check();
+        if (!isStorageFull(error)) rethrow;
+        Error.throwWithStackTrace(
+          StorageFullException(
+            dir: File(destinationPath).parent.path,
+            cause: error,
+          ),
+          stack,
+        );
+      } catch (error) {
+        cancellation?.check();
+        if (attempt + 1 >= maxAttempts ||
+            (error is! TimeoutException &&
+                error is! SocketException &&
+                error is! http.ClientException) ||
+            !await File('$destinationPath.resume').exists()) {
+          rethrow;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 250));
       }
-      await Future<void>.delayed(const Duration(milliseconds: 250));
     }
+  } finally {
+    cancellation?.dispose();
   }
 }
 
@@ -94,11 +100,11 @@ Future<FileDownloadResult> _downloadFile({
   Duration connectTimeout = const Duration(seconds: 20),
   Duration stallTimeout = const Duration(seconds: 30),
   void Function(int received, int total)? onProgress,
-  void Function()? checkCancelled,
+  _DownloadCancellation? cancellation,
   required bool keepPartialOnCancel,
   required bool calculateSha256,
 }) async {
-  checkCancelled?.call();
+  cancellation?.check();
   final file = File(destinationPath);
   final part = File('$destinationPath.part');
   final metadata = File('$destinationPath.resume');
@@ -141,8 +147,9 @@ Future<FileDownloadResult> _downloadFile({
 
   // ניסיון רגיל ועוד התחלה מאפס אחת בלבד אם השרת דחה את הטווח.
   for (var attempt = 0; attempt < 2; attempt++) {
-    checkCancelled?.call();
+    cancellation?.check();
     final abort = Completer<void>();
+    cancellation?._abort = abort;
     final request = http.AbortableRequest('GET', Uri.parse(url),
         abortTrigger: abort.future);
     request.headers['Accept-Encoding'] = 'identity';
@@ -172,7 +179,8 @@ Future<FileDownloadResult> _downloadFile({
       }, onError: (Object _) {}));
       final http.StreamedResponse response;
       try {
-        response = await pending.timeout(connectTimeout);
+        response = await (cancellation?.wait(pending) ?? pending)
+            .timeout(connectTimeout);
       } on TlsException catch (e) {
         throw NetworkCertificateException(uri: request.url, cause: e);
       }
@@ -259,7 +267,7 @@ Future<FileDownloadResult> _downloadFile({
         );
         if (offset > 0) {
           await for (final chunk in part.openRead(0, offset)) {
-            checkCancelled?.call();
+            cancellation?.check();
             hasher.add(chunk);
           }
         }
@@ -271,8 +279,9 @@ Future<FileDownloadResult> _downloadFile({
       var received = offset;
       onProgress?.call(received, total ?? 0);
       unreadResponse = null;
-      await for (final chunk in response.stream.timeout(stallTimeout)) {
-        checkCancelled?.call();
+      final body = response.stream.timeout(stallTimeout);
+      await for (final chunk in cancellation?.bind(body) ?? body) {
+        cancellation?.check();
         received += chunk.length;
         if (total != null && received > total) {
           retain = false;
@@ -305,7 +314,7 @@ Future<FileDownloadResult> _downloadFile({
         retain = false;
         rethrow;
       }
-      checkCancelled?.call();
+      cancellation?.check();
       hasher?.close();
       hasher = null;
       if (total != null && received != total) {
@@ -325,7 +334,7 @@ Future<FileDownloadResult> _downloadFile({
         } catch (_) {}
       }
       try {
-        checkCancelled?.call();
+        cancellation?.check();
       } catch (_) {
         if (!keepPartialOnCancel) {
           retain = false;
@@ -348,10 +357,70 @@ Future<FileDownloadResult> _downloadFile({
       rethrow;
     } finally {
       hasher?.close();
+      cancellation?._abort = null;
       if (!abort.isCompleted) abort.complete();
     }
   }
   throw statusError(416);
+}
+
+class _DownloadCancellation {
+  _DownloadCancellation(this._check) {
+    _cancelled.future.ignore();
+    _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      try {
+        check();
+      } catch (_) {}
+    });
+  }
+
+  final void Function() _check;
+  final _cancelled = Completer<Never>();
+  late final Timer _timer;
+  Completer<void>? _abort;
+  Object? _error;
+  StackTrace? _stack;
+
+  void check() {
+    if (_error case final error?) Error.throwWithStackTrace(error, _stack!);
+    try {
+      _check();
+    } catch (error, stack) {
+      _error = error;
+      _stack = stack;
+      _timer.cancel();
+      if (_abort case final abort? when !abort.isCompleted) abort.complete();
+      _cancelled.completeError(error, stack);
+      rethrow;
+    }
+  }
+
+  Future<T> wait<T>(Future<T> pending) =>
+      Future.any([pending, _cancelled.future]);
+
+  Stream<T> bind<T>(Stream<T> source) => Stream<T>.multi((controller) {
+        var active = true;
+        final subscription = source.listen(
+          controller.addSync,
+          onError: controller.addErrorSync,
+          onDone: () {
+            active = false;
+            controller.closeSync();
+          },
+        );
+        controller.onPause = subscription.pause;
+        controller.onResume = subscription.resume;
+        controller.onCancel = () {
+          active = false;
+          return subscription.cancel();
+        };
+        unawaited(_cancelled.future.then<void>((_) {},
+            onError: (Object error, StackTrace stack) {
+          if (active) controller.addError(error, stack);
+        }));
+      });
+
+  void dispose() => _timer.cancel();
 }
 
 String? _strongEtag(Object? value) =>
