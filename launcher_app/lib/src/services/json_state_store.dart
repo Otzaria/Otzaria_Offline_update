@@ -8,11 +8,13 @@ import 'serial_queue.dart';
 
 /// עדכון מצב עזר הוא best effort; התור מכסה גם את הקריאה שלפני הכתיבה.
 class JsonStateStore {
-  JsonStateStore(String path) : _file = File(p.normalize(p.absolute(path)));
+  JsonStateStore(String path) : _file = File(p.absolute(path));
 
   final File _file;
+
+  // Normalize only the key: '..' after a symlink can resolve elsewhere.
   late final SerialQueue _queue = SerialQueue.forKey(
-    Platform.isWindows ? _file.path.toLowerCase() : _file.path,
+    p.normalize(Platform.isWindows ? _file.path.toLowerCase() : _file.path),
   );
 
   Future<Map<String, dynamic>> load() async {

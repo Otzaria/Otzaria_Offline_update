@@ -60,6 +60,28 @@ void main() {
     });
   });
 
+  test('destination follows a state path through a symlink and parent',
+      () async {
+    final nested = await Directory(p.join(dir.path, 'target', 'nested'))
+        .create(recursive: true);
+    final link = await Link(p.join(dir.path, 'alias')).create(nested.path);
+    final actual = p.join(nested.parent.path, 'logs');
+    final lexical = p.join(dir.path, 'logs');
+    final correct = StoreAppDestinationStore(actual, hostName: 'a');
+    final other = StoreAppDestinationStore(lexical, hostName: 'a');
+    await correct.record(dir: 'correct', tag: 'v1');
+    await other.record(dir: 'other', tag: 'v0');
+
+    final alias = StoreAppDestinationStore(
+      p.join(link.path, '..', 'logs'),
+      hostName: 'a',
+    );
+    expect(await alias.load(), (dir: 'correct', tag: 'v1'));
+    await alias.record(dir: 'new', tag: 'v2');
+    expect(await correct.load(), (dir: 'new', tag: 'v2'));
+    expect(await other.load(), (dir: 'other', tag: 'v0'));
+  }, skip: Platform.isWindows);
+
   test('רישום שני דורס את הראשון, וערך מסוג שגוי נקרא כריק', () async {
     final store = StoreAppDestinationStore(dir.path, hostName: 'a');
     await store.record(dir: 'x', tag: 'v1');
