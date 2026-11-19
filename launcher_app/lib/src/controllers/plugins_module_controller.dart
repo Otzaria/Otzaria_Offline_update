@@ -428,6 +428,7 @@ class PluginsModuleController extends ChangeNotifier
 
   /// תוספים שנמסרו לאוצריא וטרם אושרו בסריקה, לפי `id` של התוסף בחנות.
   final Map<String, _PendingInstall> _pendingInstalls = {};
+  final _installResults = PluginInstallResultsReader();
   Timer? _installWatch;
 
   /// שמות התוספים שאוצריא סיימה להתקין. `AppSession` מאזין ומציג הודעה —
@@ -524,16 +525,24 @@ class PluginsModuleController extends ChangeNotifier
       for (final entry in _pendingInstalls.entries)
         if (entry.value.deliveredPath != null) entry.key: entry.value,
     };
-    if (watched.isEmpty) return const {};
+    if (watched.isEmpty) {
+      _installResults.clear();
+      return const {};
+    }
     final root = await _manager.otzariaDataRoot();
-    if (root == null) return const {};
+    if (root == null) {
+      _installResults.clear();
+      return const {};
+    }
     final capabilities = await OtzariaCapabilities.read(root);
-    if ((capabilities?.pluginInstallResults ?? 0) < 1) return const {};
-    final reports = await PluginInstallResults.read(root);
+    if ((capabilities?.pluginInstallResults ?? 0) < 1) {
+      _installResults.clear();
+      return const {};
+    }
+    final reports = await _installResults.read(root);
     return {
       for (final entry in watched.entries)
-        if (PluginInstallResults.latestFor(
-          reports,
+        if (reports.latestFor(
           entry.value.deliveredPath!,
           entry.value.handedOffAt,
         )
@@ -590,6 +599,7 @@ class PluginsModuleController extends ChangeNotifier
     if (_pendingInstalls.isEmpty) {
       _installWatch?.cancel();
       _installWatch = null;
+      _installResults.clear();
     }
     // גם פסק זמן משנה את מצב השורה בדיאלוג, והסריקה עצמה לא בהכרח תודיע.
     notifyListeners();
@@ -1472,6 +1482,7 @@ class PluginsModuleController extends ChangeNotifier
   @override
   void dispose() {
     _installWatch?.cancel();
+    _installResults.clear();
     unawaited(_installDone.close());
     unawaited(_installRejected.close());
     _manager.dispose();

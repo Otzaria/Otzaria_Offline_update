@@ -1278,6 +1278,37 @@ void main() {
         expect(await announced, 'תוסף');
       });
 
+      test('בדיקות חוזרות שומרות המתנה ומזהות תוצאה שנוספה ליומן', () async {
+        capabilities(1);
+        final c = PluginsModuleController(
+          mirrorRootDir: p.join(tempDir.path, 'mirror'),
+          otzariaLaunchPath: () async => exe,
+          installWatchInterval: const Duration(days: 1),
+        );
+        addTearDown(c.dispose);
+        await c.load();
+        final waitingPath = delivered;
+        delivered = p.join(tempDir.path, 'unrelated.otzplugin');
+        otzariaReports('installed');
+        delivered = waitingPath;
+        c.watchForInstall(
+          plugin('חדש', 'תוסף', manifestId: manifestId),
+          deliveredPath: delivered,
+          handedOffAt: DateTime.now(),
+        );
+        for (var i = 0; i < 3; i++) {
+          await c.refreshInstalled();
+          expect(c.isAwaitingInstall, isTrue);
+        }
+
+        final rejected = c.installRejections.first;
+        otzariaReports('cancelled');
+        await c.refreshInstalled();
+
+        expect((await rejected).report.cancelled, isTrue);
+        expect(c.isAwaitingInstall, isFalse);
+      });
+
       test('אוצריא ישנה בלי היכולת — הקובץ אינו נקרא, הסריקה ממשיכה', () async {
         final c = watching(timeout: const Duration(milliseconds: 150));
         await c.load();

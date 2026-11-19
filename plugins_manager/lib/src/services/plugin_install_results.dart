@@ -1,6 +1,6 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:path/path.dart' as p;
 
 class PluginInstallReport {
@@ -55,10 +55,13 @@ abstract final class PluginInstallResults {
     } on FileSystemException {
       return const [];
     }
-    return [
-      for (final line in lines)
-        if (_parse(line) case final report?) report,
-    ];
+    return _parseLines(lines).toList();
+  }
+
+  static Iterable<PluginInstallReport> _parseLines(List<String> lines) sync* {
+    for (final line in lines) {
+      if (_parse(line) case final report?) yield report;
+    }
   }
 
   static PluginInstallReport? latestFor(
@@ -83,4 +86,113 @@ abstract final class PluginInstallResults {
       return null;
     }
   }
+}
+
+class PluginInstallResultsSnapshot {
+  const PluginInstallResultsSnapshot._(this._latest);
+
+  static const _empty = PluginInstallResultsSnapshot._({});
+
+  final Map<String, PluginInstallReport> _latest;
+
+  factory PluginInstallResultsSnapshot._fromLines(List<String> lines) {
+    final latest = HashMap<String, PluginInstallReport>(
+      equals: p.equals,
+      hashCode: p.hash,
+    );
+    for (final report in PluginInstallResults._parseLines(lines)) {
+      final previous = latest[report.path];
+      if (previous == null || !report.at.isBefore(previous.at)) {
+        latest[report.path] = report;
+      }
+    }
+    return PluginInstallResultsSnapshot._(latest);
+  }
+
+  PluginInstallReport? latestFor(String path, DateTime since) {
+    final latest = _latest[path];
+    return latest == null ||
+            latest.at.isBefore(since.subtract(PluginInstallResults.clockSkew))
+        ? null
+        : latest;
+  }
+}
+
+/// Reuses the index while the result log is unchanged.
+class PluginInstallResultsReader {
+  final _pending = <String, Future<PluginInstallResultsSnapshot>>{};
+  Future<void> _tail = Future<void>.value();
+  ({String path, FileStat stat, PluginInstallResultsSnapshot snapshot})? _cache;
+  var _generation = 0;
+
+  Future<PluginInstallResultsSnapshot> read(String dataRoot) {
+    final path = p.absolute(dataRoot, PluginInstallResults.fileName);
+    return _pending.putIfAbsent(path, () {
+      final generation = _generation;
+      late final Future<PluginInstallResultsSnapshot> result;
+      result = _tail.then((_) => _read(path, generation)).whenComplete(() {
+        if (identical(_pending[path], result)) _pending.remove(path);
+      });
+      _tail = result.then<void>((_) {}, onError: (Object _) {});
+      return result;
+    });
+  }
+
+  void clear() {
+    _generation++;
+    _cache = null;
+    _pending.clear();
+  }
+
+  Future<PluginInstallResultsSnapshot> _read(
+    String path,
+    int generation,
+  ) async {
+    if (generation != _generation) return PluginInstallResultsSnapshot._empty;
+    List<String>? lines;
+    try {
+      final file = File(path);
+      var stat = await file.stat();
+      for (var attempt = 0; attempt < 2; attempt++) {
+        if (generation != _generation) {
+          return PluginInstallResultsSnapshot._empty;
+        }
+        if (stat.type != FileSystemEntityType.file) break;
+        final previous = _cache;
+        if (attempt == 0 &&
+            previous != null &&
+            previous.path == path &&
+            _sameStat(previous.stat, stat)) {
+          return previous.snapshot;
+        }
+        lines = await file.readAsLines();
+        final after = await file.stat();
+        if (generation != _generation) {
+          return PluginInstallResultsSnapshot._empty;
+        }
+        if (_sameStat(stat, after)) {
+          final snapshot = PluginInstallResultsSnapshot._fromLines(lines);
+          _cache = (path: path, stat: after, snapshot: snapshot);
+          return snapshot;
+        }
+        // The append can be followed by a rotation while this poll is reading.
+        stat = after;
+      }
+    } on FileSystemException {
+      // The log can disappear or be unreadable during rotation.
+    }
+    if (generation != _generation) return PluginInstallResultsSnapshot._empty;
+    _cache = null;
+    // A final poll can still use the last read, but it must never be cached.
+    return lines == null
+        ? PluginInstallResultsSnapshot._empty
+        : PluginInstallResultsSnapshot._fromLines(lines);
+  }
+
+  static bool _sameStat(FileStat left, FileStat right) =>
+      left.type == right.type &&
+      left.size == right.size &&
+      left.modified == right.modified &&
+      left.changed == right.changed &&
+      left.mode == right.mode;
 }
