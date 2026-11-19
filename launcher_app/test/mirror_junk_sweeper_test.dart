@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -144,6 +145,132 @@ void main() {
           },
         });
 
+    test(
+      'sweep measures each stale file once without a recursive pre-scan',
+      () async {
+        appManifest();
+        file('mirror/app/installers/v0.9.97/OtzariaSetup.exe', bytes: 70);
+        file('mirror/app/installers/v0.9.90/setup.exe', bytes: 11);
+        file('mirror/app/installers/v0.9.90/nested/one.bin', bytes: 23);
+        file('mirror/app/installers/v0.9.90/nested/deep/two.bin', bytes: 37);
+        final counts = _ScanCounts(data('mirror/app/installers/v0.9.90'));
+
+        final freed = await IOOverrides.runWithIOOverrides(sweep, counts);
+
+        expect(freed, 71);
+        expect(counts.recursiveLists, 0);
+        expect(counts.lengths, {
+          data('mirror/app/installers/v0.9.90/setup.exe'): 1,
+          data('mirror/app/installers/v0.9.90/nested/one.bin'): 1,
+          data('mirror/app/installers/v0.9.90/nested/deep/two.bin'): 1,
+        });
+        expect(exists('mirror/app/installers/v0.9.90'), isFalse);
+        expect(
+          exists('mirror/app/installers/v0.9.97/OtzariaSetup.exe'),
+          isTrue,
+        );
+      },
+    );
+
+    test('sweep completes discovery before deleting from the directory',
+        () async {
+      appManifest();
+      const tag = 'mirror/app/installers/v0.9.97';
+      file('$tag/OtzariaSetup.exe');
+      file('$tag/stale-a.exe', bytes: 3);
+      file('$tag/stale-b.exe', bytes: 5);
+      final counts =
+          _ScanCounts(data(tag), mutationSensitiveListing: data(tag));
+
+      expect(await IOOverrides.runWithIOOverrides(sweep, counts), 8);
+      expect(exists('$tag/OtzariaSetup.exe'), isTrue);
+      expect(exists('$tag/stale-a.exe'), isFalse);
+      expect(exists('$tag/stale-b.exe'), isFalse);
+    });
+
+    test(
+      'find still reports complete directory sizes without deleting',
+      () async {
+        appManifest();
+        file('mirror/app/installers/v0.9.97/OtzariaSetup.exe', bytes: 70);
+        file('mirror/app/installers/v0.9.90/setup.exe', bytes: 11);
+        file('mirror/app/installers/v0.9.90/nested/data.bin', bytes: 23);
+        final sweeper = MirrorJunkSweeper(dataDir: temp.path);
+
+        final junk = await sweeper.find();
+
+        expect(junk, hasLength(1));
+        expect(junk.single.path, data('mirror/app/installers/v0.9.90'));
+        expect(junk.single.bytes, 34);
+        expect(exists('mirror/app/installers/v0.9.90/setup.exe'), isTrue);
+        expect(exists('mirror/app/installers/v0.9.90/nested/data.bin'), isTrue);
+        expect(await sweeper.sweep(), 34);
+      },
+    );
+
+    test('a discovery error keeps earlier candidates and stays best effort',
+        () async {
+      libraryManifest();
+      file('mirror/library/assets/v20/seforim.db.zst', bytes: 100);
+      appManifest();
+      file('mirror/app/installers/v0.9.90/setup.exe', bytes: 11);
+      final counts = _ScanCounts(
+        data('mirror/app/installers/v0.9.90'),
+        failListing: data('mirror/app/installers'),
+      );
+      final sweeper = MirrorJunkSweeper(dataDir: temp.path);
+
+      final junk = await IOOverrides.runWithIOOverrides(sweeper.find, counts);
+      expect(
+          junk.map((item) => item.path), [data('mirror/library/assets/v20')]);
+      expect(junk.single.bytes, 100);
+      expect(exists('mirror/library/assets/v20/seforim.db.zst'), isTrue);
+
+      expect(await IOOverrides.runWithIOOverrides(sweep, counts), 100);
+      expect(exists('mirror/library/assets/v20'), isFalse);
+      expect(exists('mirror/app/installers/v0.9.90/setup.exe'), isTrue);
+    });
+
+    test(
+      'sweep leaves lock-only ancestors and does not count their bytes',
+      () async {
+        appManifest();
+        file('mirror/app/installers/v0.9.90/setup.exe', bytes: 11);
+        file('mirror/app/installers/v0.9.90/nested/data.bin', bytes: 23);
+        file('mirror/app/installers/v0.9.90/nested/asset.LOCK', bytes: 5);
+
+        expect(await sweep(), 34);
+        expect(
+          exists('mirror/app/installers/v0.9.90/nested/asset.LOCK'),
+          isTrue,
+        );
+        expect(exists('mirror/app/installers/v0.9.90/setup.exe'), isFalse);
+        expect(
+          exists('mirror/app/installers/v0.9.90/nested/data.bin'),
+          isFalse,
+        );
+        expect(await sweep(), 0);
+      },
+    );
+
+    test(
+      'sweep unlinks stale symlinks without traversing their targets',
+      () async {
+        appManifest();
+        file('outside-mirror/keep.bin', bytes: 101);
+        file('mirror/app/installers/v0.9.90/setup.exe', bytes: 11);
+        final link = Link(data('mirror/app/installers/v0.9.90/external'));
+        await link.create(data('outside-mirror'));
+
+        expect(await sweep(), 11);
+        expect(await link.exists(), isFalse);
+        expect(exists('outside-mirror/keep.bin'), isTrue);
+        expect(exists('mirror/app/installers/v0.9.90'), isFalse);
+      },
+      skip:
+          Platform.isWindows ? 'Creating symlinks requires privileges.' : false,
+    );
+
     test('תג ישן נמחק, וחבילת FULL שנשארה לצד המתקין הנוכחי איתו', () async {
       appManifest();
       file('mirror/app/installers/v0.9.97/OtzariaSetup.exe', bytes: 70);
@@ -288,6 +415,23 @@ void main() {
     expect(exists('mirror/companions/otzar-HB_catalog.db'), isFalse);
   });
 
+  test('sweep skips companions from an incomplete directory listing', () async {
+    const companions = 'mirror/companions';
+    json('$companions/companions.json', {
+      'formatVersion': 1,
+      'catalog': {'fileName': 'catalog.db.zst', 'size': 10},
+    });
+    file('$companions/catalog.db.zst');
+    file('$companions/catalog.db');
+    final counts = _ScanCounts(
+      data('$companions/catalog.db'),
+      lateFailListing: data(companions),
+    );
+
+    expect(await IOOverrides.runWithIOOverrides(sweep, counts), 0);
+    expect(exists('$companions/catalog.db'), isTrue);
+  });
+
   test('שארית .new של נלווה שהוחלף נמחקת יחד עם קובץ הצד שלה', () async {
     json('mirror/companions/companions.json', {
       'formatVersion': 1,
@@ -411,4 +555,100 @@ void main() {
     expect(exists('mirror/plugins/files/a/plugin-1.0.download.part'), isTrue);
     expect(exists('mirror/plugins/files/a/plugin-1.0.download.resume'), isTrue);
   });
+}
+
+final class _ScanCounts extends IOOverrides {
+  _ScanCounts(
+    this.root, {
+    this.failListing,
+    this.lateFailListing,
+    this.mutationSensitiveListing,
+  });
+
+  final String root;
+  final String? failListing;
+  final String? lateFailListing;
+  final String? mutationSensitiveListing;
+  final Map<String, int> lengths = {};
+  int recursiveLists = 0;
+
+  bool contains(String path) => p.equals(root, path) || p.isWithin(root, path);
+
+  FileSystemEntity wrap(FileSystemEntity entity) => switch (entity) {
+        Directory() => _CountedDirectory(entity, this),
+        File() when contains(entity.path) => _CountedFile(entity, this),
+        _ => entity,
+      };
+
+  @override
+  Directory createDirectory(String path) =>
+      _CountedDirectory(Zone.root.run(() => Directory(path)), this);
+
+  @override
+  File createFile(String path) => wrap(Zone.root.run(() => File(path))) as File;
+}
+
+class _CountedDirectory implements Directory {
+  _CountedDirectory(this.inner, this.counts);
+
+  final Directory inner;
+  final _ScanCounts counts;
+
+  @override
+  String get path => inner.path;
+
+  @override
+  Future<bool> exists() => inner.exists();
+
+  @override
+  Stream<FileSystemEntity> list({
+    bool recursive = false,
+    bool followLinks = true,
+  }) async* {
+    if (path == counts.failListing) {
+      throw FileSystemException('Drive removed', path);
+    }
+    if (recursive && counts.contains(path)) counts.recursiveLists++;
+    await for (final entity
+        in inner.list(recursive: recursive, followLinks: followLinks)) {
+      yield counts.wrap(entity);
+      // Simulate a listing that loses entries after deletion advances its cursor.
+      if (path == counts.mutationSensitiveListing && !entity.existsSync()) {
+        return;
+      }
+    }
+    if (path == counts.lateFailListing) {
+      throw FileSystemException('Drive removed while listing', path);
+    }
+  }
+
+  @override
+  Future<FileSystemEntity> delete({bool recursive = false}) =>
+      inner.delete(recursive: recursive);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _CountedFile implements File {
+  _CountedFile(this.inner, this.counts);
+
+  final File inner;
+  final _ScanCounts counts;
+
+  @override
+  String get path => inner.path;
+
+  @override
+  Future<int> length() {
+    counts.lengths.update(path, (count) => count + 1, ifAbsent: () => 1);
+    return inner.length();
+  }
+
+  @override
+  Future<FileSystemEntity> delete({bool recursive = false}) =>
+      inner.delete(recursive: recursive);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

@@ -15,18 +15,8 @@ class MirrorJunk {
   final int bytes;
 }
 
-/// מוחק מהמראה את מה שאף מניפסט אינו מזכיר — **בשקט, בסוף כל הורדה**.
-///
-/// כל רכיב מנקה כבר אחרי עצמו, אבל רק בתוך הורדה שהביאה לו משהו: רכיב
-/// שדילגו עליו ("אין חדש") או שהייצוא שלו חזר "אין מה לעדכן" אינו מנקה
-/// כלום, ולכן כונן שנקלע פעם אחת למצב רע נשאר איתו לנצח — פורום #310
-/// (שני מסדים מלאים זה לצד זה) ו-#418 (5GB). גם תוסף שהוסר מהחנות ונכס
-/// נלווה שהוחלף אינם מכוסים על ידי אף ניקוי קיים.
-///
-/// **מניפסט שלא נקרא פירושו דילוג על האזור כולו.** קבוצת שמירה ריקה היא
-/// "מחק הכול", וזו בדיוק התקלה שהמראות האחרות כבר נשמרות ממנה (ראו
-/// `OtzariaAppMirror.sync`). מאותה סיבה `mirror/apps` (תוכנות שהמשתמש
-/// הוסיף) ו-`otzaria-app/` (התקנה חיה) אינם נגעים כאן לעולם.
+/// מוחק בשקט נכסים שאינם במניפסט. מניפסט חסר או ריק אינו מתיר מחיקה.
+/// תוכנות שהמשתמש הוסיף והתקנות חיות אינן חלק מהמראה שמנקים.
 class MirrorJunkSweeper {
   const MirrorJunkSweeper({required this.dataDir});
 
@@ -39,21 +29,20 @@ class MirrorJunkSweeper {
   /// שנכשל אינו סיבה להפוך הורדה שהצליחה לשגיאה על המסך.
   Future<int> sweep() async {
     var freed = 0;
-    for (final item in await find()) {
+    // Deleting during a Windows directory listing can skip later entries.
+    for (final entity in await _candidates()) {
       try {
-        final dir = Directory(item.path);
-        if (await FileSystemEntity.type(item.path, followLinks: false) ==
-            FileSystemEntityType.directory) {
-          freed += await _deleteJunkDirectory(dir);
-          continue;
-        }
-        if (p.extension(item.path).toLowerCase() == '.lock') continue;
-        final type = await FileSystemEntity.type(item.path, followLinks: false);
-        if (type == FileSystemEntityType.link) {
-          await Link(item.path).delete();
+        final type =
+            await FileSystemEntity.type(entity.path, followLinks: false);
+        if (type == FileSystemEntityType.directory) {
+          freed += await _deleteJunkDirectory(Directory(entity.path));
+        } else if (type == FileSystemEntityType.link) {
+          await Link(entity.path).delete();
         } else if (type == FileSystemEntityType.file) {
-          await File(item.path).delete();
-          freed += item.bytes;
+          final file = File(entity.path);
+          final bytes = await _sizeOf(file);
+          await file.delete();
+          freed += bytes;
         }
       } catch (_) {
         // קובץ נעול (אנטי-וירוס, העתקה שרצה) — יימחק בניקוי הבא.
@@ -63,8 +52,13 @@ class MirrorJunkSweeper {
   }
 
   /// מה ייחשב זבל. חשוף כדי שהבדיקות יראו את ההחלטה עצמה, בלי למחוק.
-  Future<List<MirrorJunk>> find() async {
-    final out = <MirrorJunk>[];
+  Future<List<MirrorJunk>> find() async => [
+        for (final entity in await _candidates())
+          MirrorJunk(path: entity.path, bytes: await _sizeOf(entity)),
+      ];
+
+  Future<List<FileSystemEntity>> _candidates() async {
+    final out = <FileSystemEntity>[];
     try {
       await _libraryJunk(out);
       await _companionJunk(out);
@@ -74,16 +68,16 @@ class MirrorJunkSweeper {
     } catch (_) {
       // כונן שנשלף באמצע סריקה — מוחקים את מה שכבר זוהה, ולא נופלים.
     }
-    return out
-        .where((item) => p.extension(item.path).toLowerCase() != '.lock')
-        .toList();
+    out.removeWhere(
+        (entity) => p.extension(entity.path).toLowerCase() == '.lock');
+    return out;
   }
 
   // ── ספרייה ────────────────────────────────────────────────────────────────
 
   /// נכס שאינו ב-`releases.json` לא ייקרא לעולם — זה מה שהשאיר מסד מלא של
   /// גרסה ישנה על הכונן לצד החדש.
-  Future<void> _libraryJunk(List<MirrorJunk> out) async {
+  Future<void> _libraryJunk(List<FileSystemEntity> out) async {
     final mirrorDir = p.join(_mirrorDir, 'library');
     final assetsRoot = Directory(p.join(mirrorDir, 'assets'));
     if (!await assetsRoot.exists()) return;
@@ -110,7 +104,7 @@ class MirrorJunkSweeper {
 
     await for (final entity in assetsRoot.list(followLinks: false)) {
       if (entity is! Directory) {
-        out.add(await _junkOf(entity));
+        out.add(entity);
         continue;
       }
       await _unkeptWithin(entity, keep, out);
@@ -121,7 +115,7 @@ class MirrorJunkSweeper {
 
   /// נכס נלווה שהוחלף (הקטלוג עבר מ-`.db` ל-`.db.zst`) משאיר את הקודם שם,
   /// ו-`CompanionAssetsMirror` אינו מוחק דבר.
-  Future<void> _companionJunk(List<MirrorJunk> out) async {
+  Future<void> _companionJunk(List<FileSystemEntity> out) async {
     final dir = Directory(p.join(_mirrorDir, 'companions'));
     if (!await dir.exists()) return;
 
@@ -143,7 +137,7 @@ class MirrorJunkSweeper {
 
   // ── תוכנת אוצריא ──────────────────────────────────────────────────────────
 
-  Future<void> _appJunk(List<MirrorJunk> out) async {
+  Future<void> _appJunk(List<FileSystemEntity> out) async {
     final root = Directory(p.join(_mirrorDir, 'app', 'installers'));
     if (!await root.exists()) return;
 
@@ -191,7 +185,7 @@ class MirrorJunkSweeper {
 
   /// תוסף שהוסר מהחנות משאיר את כל תיקייתו: `pruneUnusedFiles` רץ רק על
   /// תוספים שעדיין בקטלוג, ולכן אינו יכול לראות אותה.
-  Future<void> _pluginJunk(List<MirrorJunk> out) async {
+  Future<void> _pluginJunk(List<FileSystemEntity> out) async {
     final store = PluginMirrorStore(_mirrorDir);
     final root = Directory(store.filesDir);
     if (!await root.exists()) return;
@@ -216,7 +210,7 @@ class MirrorJunkSweeper {
     await for (final entity in root.list(followLinks: false)) {
       if (entity is! Directory ||
           !keptDirs.contains(_key(p.basename(entity.path)))) {
-        out.add(await _junkOf(entity));
+        out.add(entity);
         continue;
       }
       await _unkeptWithin(entity, keep, out, wholeDirWhenNothingKept: false);
@@ -225,7 +219,7 @@ class MirrorJunkSweeper {
 
   // ── הלאנצ'ר עצמו ──────────────────────────────────────────────────────────
 
-  Future<void> _launcherJunk(List<MirrorJunk> out) async {
+  Future<void> _launcherJunk(List<FileSystemEntity> out) async {
     final root = Directory(p.join(_mirrorDir, 'launcher', 'files'));
     if (!await root.exists()) return;
 
@@ -257,17 +251,17 @@ class MirrorJunkSweeper {
   Future<void> _byTagDir(
     Directory root,
     Map<String, Set<String>> keptFilesByTag,
-    List<MirrorJunk> out,
+    List<FileSystemEntity> out,
   ) async {
     await for (final entity in root.list(followLinks: false)) {
       final keep = keptFilesByTag[_key(p.basename(entity.path))];
       if (entity is! Directory || keep == null) {
-        out.add(await _junkOf(entity));
+        out.add(entity);
         continue;
       }
       await for (final file in entity.list(followLinks: false)) {
         if (!keep.contains(_key(p.basename(file.path)))) {
-          out.add(await _junkOf(file));
+          out.add(file);
         }
       }
     }
@@ -278,7 +272,7 @@ class MirrorJunkSweeper {
   Future<void> _unkeptWithin(
     Directory dir,
     Set<String> keep,
-    List<MirrorJunk> out, {
+    List<FileSystemEntity> out, {
     bool wholeDirWhenNothingKept = true,
   }) async {
     final unkept = <FileSystemEntity>[];
@@ -292,12 +286,10 @@ class MirrorJunkSweeper {
     }
     if (unkept.isEmpty) return;
     if (kept == 0 && wholeDirWhenNothingKept) {
-      out.add(await _junkOf(dir));
+      out.add(dir);
       return;
     }
-    for (final entity in unkept) {
-      out.add(await _junkOf(entity));
-    }
+    out.addAll(unkept);
   }
 
   // Persistent download locks must keep the same inode even outside manifests.
@@ -315,9 +307,6 @@ class MirrorJunkSweeper {
     if (await dir.list(followLinks: false).isEmpty) await dir.delete();
     return freed;
   }
-
-  Future<MirrorJunk> _junkOf(FileSystemEntity entity) async =>
-      MirrorJunk(path: entity.path, bytes: await _sizeOf(entity));
 
   /// נתיב שנשמר במניפסט נכתב תמיד עם `/`, גם כשהוא נקרא בווינדוס.
   static String _baseName(String path) =>
