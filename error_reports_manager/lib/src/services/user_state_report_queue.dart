@@ -12,6 +12,7 @@ import '../models/outbox_report.dart';
 import '../port/app_report.dart';
 import '../port/direct_error_report.dart';
 import '../port/plugin_report_record.dart';
+import '../report_json.dart';
 import 'report_outbox.dart';
 
 Future<String?> locateUserStateDb({
@@ -472,8 +473,7 @@ class UserStateReportQueue implements OtzariaReportQueue {
           title = report.title;
           createdAt = report.createdAt.toUtc().toIso8601String();
           body = report.toApiPayload();
-          if (utf8.encode(jsonEncode(body)).length >
-              AppReport.maxRequestBytes) {
+          if (reportJsonByteLength(body) > AppReport.maxRequestBytes) {
             return null;
           }
         case _ReportKind.plugin:

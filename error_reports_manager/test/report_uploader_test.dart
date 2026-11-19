@@ -126,11 +126,22 @@ void main() {
 
     test('דיווח ספר: report_id חדש, נשלח ונספר כנשלח', () async {
       final outbox = MemoryOutbox(const []);
-      outbox.add(withBody('old', {'report_id': 'old', 'x': 1}),
-          filePath: 'old.json');
+      final originalBody = {
+        'report_id': 'old',
+        'x': 1,
+        'text': 'ספר 🚀\n"בדיקה"',
+      };
+      outbox.add(withBody('old', originalBody), filePath: 'old.json');
       final bodies = <Map<String, dynamic>>[];
       final result = await uploader((req) async {
         bodies.add(jsonDecode(req.body) as Map<String, dynamic>);
+        expect(
+          req.bodyBytes,
+          utf8.encode(jsonEncode({
+            ...originalBody,
+            'report_id': bodies.last['report_id'],
+          })),
+        );
         return http.Response(
           bodies.length == 1 ? '{"error":"conflict"}' : _ok,
           bodies.length == 1 ? 409 : 200,
@@ -147,14 +158,24 @@ void main() {
 
     test('דיווח תוכנה: reportId חדש בפורמט UUID', () async {
       final outbox = MemoryOutbox(const []);
+      final originalBody = {
+        'reportId': 'a1',
+        'product': 'offline-update',
+        'details': 'תקלה 🚀\n"בדיקה"',
+      };
       outbox.add(
-        withBody('a1', {'reportId': 'a1'},
+        withBody('a1', originalBody,
             endpoint: OutboxReport.appReportingEndpoint),
         filePath: 'a1.json',
       );
       final ids = <String>[];
       await uploader((req) async {
         ids.add((jsonDecode(req.body) as Map)['reportId'] as String);
+        expect(
+          req.bodyBytes,
+          utf8.encode(jsonEncode(
+              {...originalBody, 'reportId': ids.last}..remove('product'))),
+        );
         return http.Response(_ok, ids.length == 1 ? 409 : 200);
       }).upload(outbox);
 
@@ -471,8 +492,18 @@ void main() {
   ]) {
     test('$status על ה-minidump — נשלח שוב בלעדיו, ונספר כנשלח', () async {
       final outbox = await dumpOutbox();
+      final originalBody = outbox.bodyOf(outbox.reports.single);
       final bodies = <Map<String, dynamic>>[];
       final result = await uploader((req) async {
+        expect(
+          req.bodyBytes,
+          utf8.encode(jsonEncode(bodies.isEmpty
+              ? originalBody
+              : {
+                  ...originalBody,
+                  'attachments': {'errorLog': 'לוג'},
+                })),
+        );
         bodies.add(jsonDecode(req.body) as Map<String, dynamic>);
         return bodies.length == 1
             ? http.Response(response, status)

@@ -196,9 +196,7 @@ class ErrorReportUploader {
                 ? null
                 : (
                     body: withoutMinidump,
-                    bytes: Uint8List.fromList(
-                      utf8.encode(jsonEncode(withoutMinidump)),
-                    ),
+                    bytes: utf8.encode(jsonEncode(withoutMinidump)),
                   );
           });
           if (stripped != null) {
@@ -479,7 +477,7 @@ class ErrorReportUploader {
         autoUpload: item.autoUpload,
         body: body,
       )),
-      bodyBytes: Uint8List.fromList(utf8.encode(jsonEncode(body))),
+      bodyBytes: utf8.encode(jsonEncode(body)),
     );
   }
 
