@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -40,6 +41,65 @@ void main() {
         () => OutboxReport.fromJson(json, filePath: 'a'),
         throwsFormatException,
       );
+    });
+
+    for (final ids in [
+      {'report_id': 'book-id'},
+      {'reportId': 'app-id'},
+      {'reportId': 'retained-id', 'report_id': 'chosen-id'},
+    ]) {
+      test('bytes and content key preserve ${ids.keys.join('/')} precedence',
+          () {
+        final body = <String, dynamic>{
+          ...ids,
+          'product': 'offline-update',
+          'text': 'עברית 🚀\n\u0000\ud800',
+          'nested': {
+            'z': [1, true, null],
+            'a': {'y': 2, 'x': 1},
+          },
+        };
+        final file = OutboxReport.fileJson(
+          reportId: 'envelope-id',
+          bookTitle: 'ספר',
+          createdAt: '2026-10-01T10:00:00Z',
+          body: body,
+        );
+        final before = jsonEncode(file);
+        final request = Map.of(body)..remove('product');
+        final content = Map.of(request)
+          ..remove(body.containsKey('report_id') ? 'report_id' : 'reportId');
+        final expectedKey = sha256
+            .convert(utf8.encode('${file['endpoint']}\n${jsonEncode(content)}'))
+            .toString();
+
+        expect(OutboxReport.encodeFile(file), utf8.encode(before));
+        expect(
+            OutboxReport.requestBodyOf(file), utf8.encode(jsonEncode(request)));
+        expect(OutboxReport.requestBodyOf({...file, 'body': request}),
+            utf8.encode(jsonEncode(request)));
+        expect(OutboxReport.contentKeyOf(file), expectedKey);
+        expect(
+            OutboxReport.contentKeyOf({...file, 'body': request}), expectedKey);
+        expect(
+            OutboxReport.contentKeyOf({
+              ...file,
+              'endpoint': OutboxReport.appReportingEndpoint,
+            }),
+            isNot(expectedKey));
+        expect(jsonEncode(file), before);
+      });
+    }
+
+    test('content key requires the selected ID to be a string', () {
+      for (final body in [
+        null,
+        <String, dynamic>{},
+        {'reportId': 1},
+        {'report_id': null, 'reportId': 'valid'},
+      ]) {
+        expect(OutboxReport.contentKeyOf({'body': body}), isNull);
+      }
     });
   });
 

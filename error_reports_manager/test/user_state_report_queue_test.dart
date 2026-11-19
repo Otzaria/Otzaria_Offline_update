@@ -199,6 +199,8 @@ void main() {
         expect((await queue.collectTo(outbox)).collected, 2);
         expect(outbox.bodyOf(outbox.reports[0])['schema'], 1);
         expect(outbox.bodyOf(outbox.reports[1])['schema'], 2);
+        expect(await outbox.requestBody(outbox.reports[1]),
+            utf8.encode(jsonEncode(fixture['payload'])));
         expect(rows(UserStateReportQueue.appPendingKind), isEmpty);
         expect(rows(UserStateReportQueue.appPendingKindV2), isEmpty);
         expect(rows('app_reports_queue/sent_reports').length, 2);

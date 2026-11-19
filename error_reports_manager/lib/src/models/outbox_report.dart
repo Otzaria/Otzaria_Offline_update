@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
+import '../report_json.dart';
 
 /// דיווח טעות אחד שנאסף מהתור של אוצריא, כפי שהוא יושב בתיבת היציאה עד
 /// שיישלח.
@@ -114,9 +114,7 @@ class OutboxReport {
     final content = Map.of(body)
       ..remove(idKey)
       ..remove('product');
-    return sha256
-        .convert(utf8.encode('${fileJson['endpoint']}\n${jsonEncode(content)}'))
-        .toString();
+    return hashReportJson('${fileJson['endpoint']}\n', content);
   }
 
   static Uint8List encodeFile(Map<String, dynamic> fileJson) =>
