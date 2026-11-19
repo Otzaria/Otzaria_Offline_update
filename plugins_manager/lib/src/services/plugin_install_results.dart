@@ -1,8 +1,6 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
-
-import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 class PluginInstallReport {
@@ -57,10 +55,13 @@ abstract final class PluginInstallResults {
     } on FileSystemException {
       return const [];
     }
-    return [
-      for (final line in lines)
-        if (_parse(line) case final report?) report,
-    ];
+    return _parseLines(lines).toList();
+  }
+
+  static Iterable<PluginInstallReport> _parseLines(List<String> lines) sync* {
+    for (final line in lines) {
+      if (_parse(line) case final report?) yield report;
+    }
   }
 
   static PluginInstallReport? latestFor(
@@ -88,21 +89,28 @@ abstract final class PluginInstallResults {
 }
 
 class PluginInstallResultsSnapshot {
-  const PluginInstallResultsSnapshot._(this._latest, this._trailing);
+  const PluginInstallResultsSnapshot._(this._latest);
 
-  static const _empty = PluginInstallResultsSnapshot._({}, null);
+  static const _empty = PluginInstallResultsSnapshot._({});
 
   final Map<String, PluginInstallReport> _latest;
-  final PluginInstallReport? _trailing;
+
+  factory PluginInstallResultsSnapshot._fromLines(List<String> lines) {
+    final latest = HashMap<String, PluginInstallReport>(
+      equals: p.equals,
+      hashCode: p.hash,
+    );
+    for (final report in PluginInstallResults._parseLines(lines)) {
+      final previous = latest[report.path];
+      if (previous == null || !report.at.isBefore(previous.at)) {
+        latest[report.path] = report;
+      }
+    }
+    return PluginInstallResultsSnapshot._(latest);
+  }
 
   PluginInstallReport? latestFor(String path, DateTime since) {
-    var latest = _latest[p.canonicalize(path)];
-    final trailing = _trailing;
-    if (trailing != null &&
-        p.equals(trailing.path, path) &&
-        (latest == null || !trailing.at.isBefore(latest.at))) {
-      latest = trailing;
-    }
+    final latest = _latest[path];
     return latest == null ||
             latest.at.isBefore(since.subtract(PluginInstallResults.clockSkew))
         ? null
@@ -110,17 +118,15 @@ class PluginInstallResultsSnapshot {
   }
 }
 
-/// Polls unchanged logs without rereading them. A changed prefix is verified
-/// before reusing its index, because a replacement can also grow the file.
+/// Reuses the index while the result log is unchanged.
 class PluginInstallResultsReader {
   final _pending = <String, Future<PluginInstallResultsSnapshot>>{};
   Future<void> _tail = Future<void>.value();
-  _InstallResultsCache? _cache;
+  ({String path, FileStat stat, PluginInstallResultsSnapshot snapshot})? _cache;
   var _generation = 0;
 
   Future<PluginInstallResultsSnapshot> read(String dataRoot) {
-    final path =
-        p.canonicalize(p.join(dataRoot, PluginInstallResults.fileName));
+    final path = p.absolute(dataRoot, PluginInstallResults.fileName);
     return _pending.putIfAbsent(path, () {
       final generation = _generation;
       late final Future<PluginInstallResultsSnapshot> result;
@@ -139,94 +145,42 @@ class PluginInstallResultsReader {
   }
 
   Future<PluginInstallResultsSnapshot> _read(
-      String path, int generation) async {
+    String path,
+    int generation,
+  ) async {
     if (generation != _generation) return PluginInstallResultsSnapshot._empty;
     try {
       final file = File(path);
-      final stat = await file.stat();
-      if (stat.type != FileSystemEntityType.file) {
-        if (generation == _generation) _cache = null;
-        return PluginInstallResultsSnapshot._empty;
-      }
-      final previous = _cache?.path == path ? _cache : null;
-      if (previous != null && _sameStat(previous.stat, stat)) {
-        return generation == _generation
-            ? previous.snapshot
-            : PluginInstallResultsSnapshot._empty;
-      }
-      final next = await _scan(file, stat, previous);
-      final after = await file.stat();
-      if (generation != _generation) return PluginInstallResultsSnapshot._empty;
-      _cache = _sameStat(stat, after) ? next : null;
-      return _cache?.snapshot ?? PluginInstallResultsSnapshot._empty;
-    } on FileSystemException {
-      if (generation == _generation) _cache = null;
-      return PluginInstallResultsSnapshot._empty;
-    }
-  }
-
-  Future<_InstallResultsCache> _scan(
-    File file,
-    FileStat stat,
-    _InstallResultsCache? previous,
-  ) async {
-    final handle = await file.open();
-    try {
-      var digest = _ResultDigest();
-      var hash = sha256.startChunkedConversion(digest);
-      var builder = _ResultsBuilder();
-      var offset = 0;
-      if (previous != null && stat.size > previous.stat.size) {
-        final prefixDigest = _ResultDigest();
-        final prefix = sha256.startChunkedConversion(prefixDigest);
-        await _readBytes(handle, previous.stat.size, (bytes) {
-          prefix.add(bytes);
-          hash.add(bytes);
-        });
-        prefix.close();
-        if (prefixDigest.value == previous.digest) {
-          builder =
-              _ResultsBuilder(previous.snapshot._latest, previous.pending);
-          offset = previous.stat.size;
-        } else {
-          hash.close();
-          digest = _ResultDigest();
-          hash = sha256.startChunkedConversion(digest);
-          await handle.setPosition(0);
+      var stat = await file.stat();
+      for (var attempt = 0; attempt < 2; attempt++) {
+        if (generation != _generation) {
+          return PluginInstallResultsSnapshot._empty;
         }
+        if (stat.type != FileSystemEntityType.file) break;
+        final previous = _cache;
+        if (previous != null &&
+            previous.path == path &&
+            _sameStat(previous.stat, stat)) {
+          return previous.snapshot;
+        }
+        final lines = await file.readAsLines();
+        final after = await file.stat();
+        if (generation != _generation) {
+          return PluginInstallResultsSnapshot._empty;
+        }
+        if (_sameStat(stat, after)) {
+          final snapshot = PluginInstallResultsSnapshot._fromLines(lines);
+          _cache = (path: path, stat: after, snapshot: snapshot);
+          return snapshot;
+        }
+        // The append can be followed by a rotation while this poll is reading.
+        stat = after;
       }
-      await _readBytes(handle, stat.size - offset, (bytes) {
-        hash.add(bytes);
-        builder.add(bytes);
-      });
-      hash.close();
-      final pending = builder.pending.takeBytes();
-      return _InstallResultsCache(
-        file.path,
-        stat,
-        digest.value,
-        pending,
-        PluginInstallResultsSnapshot._(builder.latest, _parseBytes(pending)),
-      );
-    } finally {
-      await handle.close();
+    } on FileSystemException {
+      // Ignore unreadable results and let the controller scan installed plugins.
     }
-  }
-
-  static Future<void> _readBytes(
-    RandomAccessFile handle,
-    int remaining,
-    void Function(Uint8List) consume,
-  ) async {
-    while (remaining > 0) {
-      final bytes = await handle.read(remaining < 65536 ? remaining : 65536);
-      if (bytes.isEmpty) {
-        throw FileSystemException(
-            'result log changed while reading', handle.path);
-      }
-      consume(bytes);
-      remaining -= bytes.length;
-    }
+    if (generation == _generation) _cache = null;
+    return PluginInstallResultsSnapshot._empty;
   }
 
   static bool _sameStat(FileStat left, FileStat right) =>
@@ -235,68 +189,4 @@ class PluginInstallResultsReader {
       left.modified == right.modified &&
       left.changed == right.changed &&
       left.mode == right.mode;
-}
-
-class _InstallResultsCache {
-  _InstallResultsCache(
-    this.path,
-    this.stat,
-    this.digest,
-    this.pending,
-    this.snapshot,
-  );
-
-  final String path;
-  final FileStat stat;
-  final Digest digest;
-  final Uint8List pending;
-  final PluginInstallResultsSnapshot snapshot;
-}
-
-class _ResultsBuilder {
-  _ResultsBuilder([
-    Map<String, PluginInstallReport> previous = const {},
-    List<int> trailing = const [],
-  ]) : latest = Map.of(previous) {
-    pending.add(trailing);
-  }
-
-  final Map<String, PluginInstallReport> latest;
-  final pending = BytesBuilder(copy: false);
-
-  void add(Uint8List bytes) {
-    var start = 0;
-    for (var i = 0; i < bytes.length; i++) {
-      if (bytes[i] != 10 && bytes[i] != 13) continue;
-      pending.add(Uint8List.sublistView(bytes, start, i));
-      final report = _parseBytes(pending.takeBytes());
-      if (report != null) {
-        final key = p.canonicalize(report.path);
-        final before = latest[key];
-        if (before == null || !report.at.isBefore(before.at)) {
-          latest[key] = report;
-        }
-      }
-      start = i + 1;
-    }
-    pending.add(Uint8List.sublistView(bytes, start));
-  }
-}
-
-PluginInstallReport? _parseBytes(List<int> bytes) {
-  try {
-    return PluginInstallResults._parse(utf8.decode(bytes));
-  } on FormatException {
-    return null;
-  }
-}
-
-class _ResultDigest implements Sink<Digest> {
-  late Digest value;
-
-  @override
-  void add(Digest data) => value = data;
-
-  @override
-  void close() {}
 }

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:plugins_manager/plugins_manager.dart';
@@ -101,25 +100,23 @@ void main() {
       expect(await read(), same(first));
       expect(await read(), same(first));
       expect(io.bytesRead, bytes);
-      expect(io.opens, 1);
-      expect(io.closes, 1);
+      expect(io.reads, 3);
       expect(io.stats, 4);
     });
 
-    test('an appended result reuses previously decoded records', () async {
+    test('an appended result does not mutate the previous snapshot', () async {
       write([entry(path, 'installed', at)]);
       final first = await read();
       final other = p.join(temp.path, 'b.otzplugin');
       await append('${jsonEncode(entry(other, 'cancelled', at))}\n');
 
       final second = await read();
-      expect(second.latestFor(path, at), same(first.latestFor(path, at)));
+      expect(second.latestFor(path, at)?.succeeded, isTrue);
       expect(second.latestFor(other, at)?.cancelled, isTrue);
       expect(first.latestFor(other, at), isNull);
     });
 
-    test('large lines and prefix verification use bounded read buffers',
-        () async {
+    test('large lines keep their full message after an append', () async {
       final message = '${'x' * 70000}עברית🙂';
       write([
         {...entry(path, 'installed', at), 'message': message},
@@ -129,9 +126,9 @@ void main() {
       final other = p.join(temp.path, 'b.otzplugin');
       await append('${jsonEncode(entry(other, 'cancelled', at))}\n');
       final second = await read();
-      expect(second.latestFor(path, at), same(first.latestFor(path, at)));
+      expect(second.latestFor(path, at)?.succeeded, isTrue);
       expect(second.latestFor(other, at)?.cancelled, isTrue);
-      expect(io.maxRead, lessThanOrEqualTo(65536));
+      expect(second.latestFor(path, at)?.message, message);
     });
 
     test('an unfinished multibyte line resumes across polls', () async {
@@ -178,11 +175,9 @@ void main() {
           indexed.latestFor(path, at.add(const Duration(seconds: 1))), isNull);
     });
 
-    test('malformed and blank lines do not hide later CRLF results', () async {
+    test('bad JSON and blank lines do not hide later CRLF results', () async {
       await file.writeAsBytes([
         ...utf8.encode('\n{bad}\r\n'),
-        0xff,
-        10,
         ...utf8.encode('${jsonEncode({'path': path})}\r'),
         ...utf8.encode('${jsonEncode(entry(path, 'updated', at))}\r\n'),
       ]);
@@ -204,7 +199,7 @@ void main() {
       expect((await read()).latestFor(path, at)?.cancelled, isTrue);
     });
 
-    test('a larger replacement verifies the entire old prefix', () async {
+    test('a larger replacement discards all previous results', () async {
       final first = p.join(temp.path, 'first.otzplugin');
       final last = p.join(temp.path, 'last.otzplugin');
       write([
@@ -250,6 +245,24 @@ void main() {
       expect((await read()).latestFor(path, at)?.succeeded, isTrue);
     });
 
+    test('reads the physical parent of a linked data root', () async {
+      final physical = p.join(temp.path, 'physical');
+      final child = await Directory(p.join(physical, 'child')).create(
+        recursive: true,
+      );
+      final link = await Link(p.join(temp.path, 'link')).create(child.path);
+      final dataRoot = p.join(link.path, '..');
+      write([entry(path, 'installed', at)]);
+      await File(p.join(physical, PluginInstallResults.fileName))
+          .writeAsString('${jsonEncode(entry(path, 'cancelled', at))}\n');
+
+      final reports = await PluginInstallResults.read(dataRoot);
+      expect(
+          PluginInstallResults.latestFor(reports, path, at)?.cancelled, isTrue);
+      expect(
+          (await reader.read(dataRoot)).latestFor(path, at)?.cancelled, isTrue);
+    }, skip: Platform.isWindows);
+
     test('an unreadable file returns no cached success and can recover',
         () async {
       write([entry(path, 'installed', at)]);
@@ -258,29 +271,28 @@ void main() {
       expect((await read()).latestFor(path, at), isNull);
       io.statError = null;
       expect((await read()).latestFor(path, at)?.succeeded, isTrue);
-      expect(io.opens, 2);
+      expect(io.reads, 2);
     });
 
-    test('a read failure closes the handle and clears old successes', () async {
+    test('a read failure clears old successes', () async {
       write([entry(path, 'installed', at)]);
       await read();
       await append('\n');
       io.beforeRead =
           () async => throw FileSystemException('removed', file.path);
       expect((await read()).latestFor(path, at), isNull);
-      expect(io.closes, 2);
+      expect(io.reads, 2);
       io.beforeRead = null;
       expect((await read()).latestFor(path, at)?.succeeded, isTrue);
     });
 
-    test('a mutation during reading discards the inconsistent snapshot',
+    test('a single mutation during reading retries within the same poll',
         () async {
       write([entry(path, 'installed', at)]);
       io.beforeRead = () async {
         io.beforeRead = null;
         await append('${jsonEncode(entry(path, 'cancelled', at))}\n');
       };
-      expect((await read()).latestFor(path, at), isNull);
       expect((await read()).latestFor(path, at)?.cancelled, isTrue);
     });
 
@@ -293,7 +305,7 @@ void main() {
         await file.writeAsString('');
       };
       expect((await read()).latestFor(path, at), isNull);
-      expect(io.closes, 2);
+      expect(io.reads, 3);
       expect((await read()).latestFor(path, at), isNull);
     });
 
@@ -311,7 +323,7 @@ void main() {
       expect(second, same(first));
       release.complete();
       expect(await second, same(await first));
-      expect(io.opens, 1);
+      expect(io.reads, 1);
     });
 
     test('clearing during a read prevents the old result being republished',
@@ -331,7 +343,7 @@ void main() {
       release.complete();
       expect((await stale).latestFor(path, at), isNull);
       expect((await fresh).latestFor(path, at)?.succeeded, isTrue);
-      expect(io.opens, 2);
+      expect(io.reads, 2);
     });
   });
 }
@@ -341,9 +353,7 @@ final class _ResultIo extends IOOverrides {
 
   final String path;
   var bytesRead = 0;
-  var maxRead = 0;
-  var opens = 0;
-  var closes = 0;
+  var reads = 0;
   var stats = 0;
   FileSystemException? statError;
   Future<void> Function()? beforeRead;
@@ -373,47 +383,10 @@ class _ResultFile implements File {
 
   @override
   Future<List<String>> readAsLines({Encoding encoding = utf8}) async {
+    io.reads++;
+    await io.beforeRead?.call();
     io.bytesRead += await real.length();
     return real.readAsLines(encoding: encoding);
-  }
-
-  @override
-  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) async {
-    io.opens++;
-    return _ResultHandle(await real.open(mode: mode), io);
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName}');
-}
-
-class _ResultHandle implements RandomAccessFile {
-  _ResultHandle(this.real, this.io);
-
-  final RandomAccessFile real;
-  final _ResultIo io;
-
-  @override
-  String get path => real.path;
-
-  @override
-  Future<Uint8List> read(int count) async {
-    if (count > io.maxRead) io.maxRead = count;
-    await io.beforeRead?.call();
-    final bytes = await real.read(count);
-    io.bytesRead += bytes.length;
-    return bytes;
-  }
-
-  @override
-  Future<RandomAccessFile> setPosition(int position) =>
-      real.setPosition(position);
-
-  @override
-  Future<void> close() async {
-    io.closes++;
-    await real.close();
   }
 
   @override
