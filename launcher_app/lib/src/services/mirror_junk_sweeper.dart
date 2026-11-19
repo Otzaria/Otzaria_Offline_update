@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:library_manager/library_manager.dart';
+import 'package:otzaria_manager/otzaria_manager.dart' show OtzariaInstaller;
 import 'package:path/path.dart' as p;
 import 'package:plugins_manager/plugins_manager.dart';
 import 'package:seforim_library_updater/seforim_library_updater.dart';
@@ -176,7 +177,10 @@ class MirrorJunkSweeper {
           relative.isEmpty) {
         return;
       }
-      keptFiles.putIfAbsent(_key(tag), () => {}).add(_key(_baseName(relative)));
+      final installer = _baseName(relative);
+      keptFiles.putIfAbsent(_key(tag), () => {})
+        ..add(_key(installer))
+        ..add(_key(OtzariaInstaller.verifiedMarkPath(installer)));
     }
     if (keptFiles.isEmpty) return;
 

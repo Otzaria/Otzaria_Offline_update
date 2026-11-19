@@ -2177,7 +2177,8 @@ class LibraryManager {
     ConcurrentCompanions<CompanionInstallReport>? overlap;
     Future<CompanionInstallReport> installCompanions(
       bool Function()? cancelled,
-      void Function(LibraryApplyProgress progress)? emit, [
+      void Function(LibraryApplyProgress progress)? emit,
+      void Function(String assetName, Object error)? warn, [
       Future<void> Function()? dbOutcome,
     ]) async => _companionsInstaller.install(
       mirrorDir: companionsMirrorDir,
@@ -2199,10 +2200,7 @@ class LibraryManager {
           bytesTotal: total,
         ),
       ),
-      onWarning: (name, error) {
-        if (overlap?.aborted ?? false) return;
-        onCompanionWarning?.call(name, error);
-      },
+      onWarning: warn,
       isCancelled: cancelled,
       beforeCommit: () async {
         await dbOutcome?.call();
@@ -2214,14 +2212,19 @@ class LibraryManager {
         () async {
           if (overlap != null) return;
           try {
-            if (!await _companionOverlapFits(dbPath, delta)) return;
+            if (!await _companionOverlapFits(dbPath, delta)) {
+              onLog?.call('companions: sequential, space for overlap unproven');
+              return;
+            }
             overlap = ConcurrentCompanions<CompanionInstallReport>(
               run: installCompanions,
               onProgress: onProgress,
+              onWarning: onCompanionWarning,
               isCancelled: isCancelled,
             )..start();
-          } catch (_) {
-            // Unknown space: sequential after the DB.
+            onLog?.call('companions: staging beside the final DB step');
+          } catch (e) {
+            onLog?.call('companions: sequential, overlap check failed: $e');
           }
         };
 
@@ -2330,7 +2333,7 @@ class LibraryManager {
     final running = overlap;
     final companions = running != null
         ? await running.join()
-        : await installCompanions(isCancelled, onProgress);
+        : await installCompanions(isCancelled, onProgress, onCompanionWarning);
     try {
       await _stateStore.saveDeliveredCompanions({
         for (final e in companions.delivered.entries) e.key.name: e.value,

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:error_reports_manager/error_reports_manager.dart';

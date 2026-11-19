@@ -46,14 +46,61 @@ void main() {
     expect(calls, [true, false]);
   });
 
-  test('run releases when the body throws', () async {
+  test('a child starts at the normal class and the lease resumes after',
+      () async {
     final bp = make();
+    final release = bp.acquire();
+    bool? loweredDuringStart;
+    await bp.aroundChildStart(() async => loweredDuringStart = bp.isActive);
+    expect(loweredDuringStart, isFalse);
+    expect(bp.isActive, isTrue);
+    expect(calls, [true, false, true]);
+    release();
+    expect(calls, [true, false, true, false]);
+  });
+
+  test('the log follows the leases, not the lift around a child start',
+      () async {
+    final seen = <(bool, bool)>[];
+    final bp = BackgroundPriority(
+      platformSwitch: (_) => true,
+      onSwitch: (lower, ok) => seen.add((lower, ok)),
+    );
+    final release = bp.acquire();
+    await bp.aroundChildStart(() async {});
+    expect(seen, [(true, true)]);
+    late void Function() second;
+    await bp.aroundChildStart(() async {
+      release();
+      second = bp.acquire();
+    });
+    second();
+    expect(seen, [(true, true), (false, true), (true, true), (false, true)]);
+  });
+
+  test('a child start without a lease touches nothing', () async {
+    final bp = make();
+    await bp.aroundChildStart(() async {});
+    expect(calls, isEmpty);
+  });
+
+  test('a failing child start still restores the lease', () async {
+    final bp = make();
+    bp.acquire();
     await expectLater(
-      bp.run<void>(() async => throw StateError('x')),
+      bp.aroundChildStart<void>(() async => throw StateError('spawn')),
       throwsStateError,
     );
+    expect(bp.isActive, isTrue);
+  });
+
+  test('a lease taken during a child start waits for it', () async {
+    final bp = make();
+    late void Function() release;
+    await bp.aroundChildStart(() async => release = bp.acquire());
+    expect(calls, [true]);
+    release();
     expect(calls, [true, false]);
-    expect(bp.leases, 0);
   });
 
   test('failed enter warns, never throws, and does not try to leave', () {

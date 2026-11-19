@@ -169,10 +169,8 @@ const companionCopyConcurrency = 8;
 String companionPathKey(String path) =>
     Platform.isLinux ? path : path.toLowerCase();
 
-/// Copies [jobs] with up to [concurrency] files in flight, so the per-file
-/// flush of one overlaps the writes of the others. Returns only after every
-/// file is closed; the first failure stops new starts and is rethrown once
-/// the running ones have cleaned up.
+/// Copies [jobs], [concurrency] files at once; returns after every file is
+/// closed, rethrowing the first failure once the running ones cleaned up.
 Future<int> copyCompanionFiles(
   List<CompanionCopyJob> jobs, {
   required int maxOutputBytes,
@@ -180,6 +178,7 @@ Future<int> copyCompanionFiles(
   bool Function()? isCancelled,
   void Function(int bytesWritten)? onProgress,
 }) async {
+  RangeError.checkValueInInterval(concurrency, 1, 1 << 16, 'concurrency');
   final destinations = <String>{};
   for (final job in jobs) {
     if (!destinations.add(companionPathKey(p.normalize(job.destination)))) {

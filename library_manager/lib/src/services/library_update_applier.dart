@@ -236,9 +236,7 @@ class LibraryUpdateApplier {
     final needsSourceVerification = File(
       _recovery.unverifiedMarkerPathFor(dbPath),
     ).existsSync();
-    final chainManifest = chainVerifyManifest([
-      for (final s in steps) s.manifest,
-    ]);
+    final changedEarlier = <String>{};
 
     _StagedPatch? pending;
     try {
@@ -320,7 +318,12 @@ class LibraryUpdateApplier {
             _recovery.markUnverified(dbPath, manifest.toVersion);
           }
           final isLast = i == steps.length - 1;
-          final partial = isLast && chainManifest != null;
+          final chainManifest = isLast
+              ? chainVerifyManifest([
+                  for (final s in steps) s.manifest,
+                ], changedEarlier: changedEarlier)
+              : null;
+          final partial = chainManifest != null;
           if (!isLast) {
             pending = _prefetchNext(
               dbPath: dbPath,
@@ -370,6 +373,12 @@ class LibraryUpdateApplier {
             },
           );
           booksTouched.addAll(result.booksTouched);
+          for (final counts in [result.upserts, result.deletes]) {
+            changedEarlier.addAll([
+              for (final e in counts.entries)
+                if (e.value > 0) e.key,
+            ]);
+          }
           onStepApplied?.call(result.booksTouched, manifest.toVersion);
           if (isLast && result.resultHash != null) {
             onLog?.call(_describeVerification(result));
@@ -394,7 +403,12 @@ class LibraryUpdateApplier {
         }
       }
     } finally {
-      await pending?.discard(_deleteQuietly);
+      final held = await pending?.discard(_deleteQuietly);
+      if (held != null &&
+          held is! PatchDownloadCancelled &&
+          held is! LibraryApplyCancelledException) {
+        onLog?.call('prefetched patch dropped with its error: $held');
+      }
     }
 
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
@@ -491,24 +505,37 @@ class LibraryUpdateApplier {
     return staged;
   }
 
-  /// המניפסט האחרון, כשטבלה ששונתה בצעד מוקדם מסומנת כשונה. null — צעד ללא
-  /// hash לטבלאות, ואז מאמתים את כל המסד.
+  /// המניפסט האחרון, כשכל טבלה שאינה זהה בכל מפות השרשרת, או שצעד מוקדם
+  /// שינה בה שורות ([changedEarlier]), מסומנת כשונה. null — אימות של כל המסד.
   @visibleForTesting
-  static DeltaManifest? chainVerifyManifest(List<DeltaManifest> steps) {
+  static DeltaManifest? chainVerifyManifest(
+    List<DeltaManifest> steps, {
+    Set<String> changedEarlier = const {},
+  }) {
     if (steps.isEmpty) return null;
     final last = steps.last;
     final lastFrom = last.fromTableContentHashes;
     if (lastFrom == null || last.toTableContentHashes == null) return null;
-    final from = {...lastFrom};
-    for (final m in steps.take(steps.length - 1)) {
-      final mFrom = m.fromTableContentHashes;
-      final mTo = m.toTableContentHashes;
-      if (mFrom == null || mTo == null) return null;
-      for (final e in mTo.entries) {
-        if (mFrom[e.key] != e.value && from.containsKey(e.key)) {
-          from[e.key] = 'changed-earlier-in-chain';
-        }
+    for (var k = 0; k + 1 < steps.length; k++) {
+      final m = steps[k];
+      if (m.fromTableContentHashes == null || m.toTableContentHashes == null) {
+        return null;
       }
+      // A republished release under the same version breaks the chain by hash.
+      if (m.toContentHash != steps[k + 1].fromContentHash) return null;
+    }
+    final from = {...lastFrom};
+    for (final t in lastFrom.keys) {
+      final same =
+          !changedEarlier.contains(t) &&
+          steps
+              .take(steps.length - 1)
+              .every(
+                (m) =>
+                    m.fromTableContentHashes![t] == lastFrom[t] &&
+                    m.toTableContentHashes![t] == lastFrom[t],
+              );
+      if (!same) from[t] = 'changed-earlier-in-chain';
     }
     return DeltaManifest(
       fromVersion: last.fromVersion,
@@ -1511,11 +1538,13 @@ class _StagedPatch {
     return r.path!;
   }
 
-  /// Stops the fetch, waits for it to settle and deletes what it staged.
-  Future<void> discard(Future<void> Function(String path) delete) async {
+  /// Stops the fetch, waits for it to settle and deletes what it staged;
+  /// returns the error it held, if any.
+  Future<Object?> discard(Future<void> Function(String path) delete) async {
     abort = true;
-    final path = (await _result).path;
-    if (path != null) await delete(path);
+    final r = await _result;
+    if (r.path != null) await delete(r.path!);
+    return r.error;
   }
 }
 

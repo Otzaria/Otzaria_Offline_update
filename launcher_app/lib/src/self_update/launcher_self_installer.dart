@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart' show aroundChildStart;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
@@ -285,11 +286,13 @@ class LauncherSelfInstaller {
     String executable,
     List<String> arguments,
   ) async {
-    await Process.start(
-      executable,
-      arguments,
-      workingDirectory: p.dirname(executable),
-      mode: ProcessStartMode.detached,
+    await aroundChildStart(
+      () => Process.start(
+        executable,
+        arguments,
+        workingDirectory: p.dirname(executable),
+        mode: ProcessStartMode.detached,
+      ),
     );
   }
 

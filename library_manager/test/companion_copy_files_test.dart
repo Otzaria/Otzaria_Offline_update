@@ -54,6 +54,14 @@ void main() {
     expect(await copyCompanionFiles([], maxOutputBytes: 10), 0);
   });
 
+  test('a non-positive concurrency is rejected instead of copying nothing', () {
+    expect(
+      () =>
+          copyCompanionFiles(jobs(2), maxOutputBytes: 1 << 20, concurrency: 0),
+      throwsRangeError,
+    );
+  });
+
   test(
     'one failing file fails the stage and leaves no partial output',
     () async {

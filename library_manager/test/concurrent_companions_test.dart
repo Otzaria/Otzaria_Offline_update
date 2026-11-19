@@ -16,7 +16,7 @@ void main() {
     final gate = Completer<void>();
     var ran = false;
     final c = ConcurrentCompanions<int>(
-      run: (_, _, _) async {
+      run: (_, _, _, _) async {
         ran = true;
         await gate.future;
         return 7;
@@ -35,7 +35,7 @@ void main() {
       final seen = <LibraryApplyProgress>[];
       final gate = Completer<void>();
       final c = ConcurrentCompanions<int>(
-        run: (_, emit, _) async {
+        run: (_, emit, _, _) async {
           emit(progress);
           await gate.future;
           emit(progress);
@@ -59,7 +59,7 @@ void main() {
   test('התקנה שכבר הסתיימה אינה מדליקה תווית נלווים ב-join', () async {
     final seen = <LibraryApplyProgress>[];
     final c = ConcurrentCompanions<int>(
-      run: (_, emit, _) async {
+      run: (_, emit, _, _) async {
         emit(progress);
         return 1;
       },
@@ -73,7 +73,7 @@ void main() {
 
   test('כשל ההתקנה אינו נזרק לפני join ונזרק בו', () async {
     final c = ConcurrentCompanions<int>(
-      run: (_, _, _) async => throw StateError('companions broke'),
+      run: (_, _, _, _) async => throw StateError('companions broke'),
     )..start();
     await Future<void>.delayed(Duration.zero);
 
@@ -84,7 +84,7 @@ void main() {
     var sawCancel = false;
     var settled = false;
     final c = ConcurrentCompanions<int>(
-      run: (cancelled, _, _) async {
+      run: (cancelled, _, _, _) async {
         while (!cancelled()) {
           await Future<void>.delayed(const Duration(milliseconds: 2));
         }
@@ -103,7 +103,7 @@ void main() {
   test('ביטול המשתמש מגיע להתקנה', () async {
     var user = false;
     final c = ConcurrentCompanions<bool>(
-      run: (cancelled, _, _) async {
+      run: (cancelled, _, _, _) async {
         while (!cancelled()) {
           await Future<void>.delayed(const Duration(milliseconds: 2));
         }
@@ -119,7 +119,7 @@ void main() {
   test('dbOutcome נשאר פתוח עד join ואז מאפשר commit', () async {
     var committed = false;
     final c = ConcurrentCompanions<int>(
-      run: (_, _, dbOutcome) async {
+      run: (_, _, _, dbOutcome) async {
         await dbOutcome();
         committed = true;
         return 1;
@@ -132,10 +132,10 @@ void main() {
     expect(committed, isTrue);
   });
 
-  test('abandon גורם ל-dbOutcome לזרוק ביטול ומסמן aborted', () async {
+  test('abandon גורם ל-dbOutcome לזרוק ביטול', () async {
     Object? thrown;
     final c = ConcurrentCompanions<int>(
-      run: (_, _, dbOutcome) async {
+      run: (_, _, _, dbOutcome) async {
         try {
           await dbOutcome();
         } catch (e) {
@@ -146,17 +146,69 @@ void main() {
       },
     )..start();
     await Future<void>.delayed(Duration.zero);
-    expect(c.aborted, isFalse);
 
     await c.abandon();
 
     expect(thrown, isA<PatchDownloadCancelled>());
-    expect(c.aborted, isTrue);
+  });
+
+  test('אזהרה לפני join מוחזקת ומדווחת ב-join', () async {
+    final warned = <String>[];
+    final c = ConcurrentCompanions<int>(
+      run: (_, _, warn, _) async {
+        warn('talmud', StateError('sha'));
+        return 1;
+      },
+      onWarning: (name, _) => warned.add(name),
+    )..start();
+    await Future<void>.delayed(Duration.zero);
+    expect(warned, isEmpty);
+
+    await c.join();
+    expect(warned, ['talmud']);
+  });
+
+  test('אזהרה שקדמה לכשל המסד אינה מדווחת', () async {
+    final warned = <String>[];
+    final c = ConcurrentCompanions<int>(
+      run: (_, _, warn, dbOutcome) async {
+        warn('talmud', StateError('sha'));
+        await dbOutcome();
+        warn('catalog', StateError('late'));
+        return 1;
+      },
+      onWarning: (name, _) => warned.add(name),
+    )..start();
+    await Future<void>.delayed(Duration.zero);
+
+    await c.abandon();
+    expect(warned, isEmpty);
+  });
+
+  test('ביטול המשתמש בזמן הצעד האחרון אינו מוצג ככשל נלווה', () async {
+    var user = false;
+    final warned = <Object>[];
+    final c = ConcurrentCompanions<int>(
+      run: (cancelled, _, warn, _) async {
+        while (!cancelled()) {
+          await Future<void>.delayed(const Duration(milliseconds: 2));
+        }
+        warn('talmud', const PatchDownloadCancelled());
+        return 1;
+      },
+      onWarning: (_, e) => warned.add(e),
+      isCancelled: () => user,
+    )..start();
+
+    user = true;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(await c.join(), 1);
+    expect(warned, isEmpty);
   });
 
   test('start חוזר אינו מריץ פעמיים', () async {
     var runs = 0;
-    final c = ConcurrentCompanions<int>(run: (_, _, _) async => ++runs)
+    final c = ConcurrentCompanions<int>(run: (_, _, _, _) async => ++runs)
       ..start();
     c.start();
 

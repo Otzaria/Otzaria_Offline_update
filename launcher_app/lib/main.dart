@@ -22,6 +22,7 @@ import 'src/self_update/launcher_version.dart';
 import 'src/self_update/payload_check.dart';
 import 'src/services/app_logger.dart';
 import 'src/services/app_paths.dart';
+import 'src/services/background_priority.dart';
 import 'src/services/instance_lock.dart';
 import 'src/services/native_sha256_sink.dart';
 import 'src/services/netfree_certificates.dart';
@@ -68,6 +69,7 @@ void main() {
       // אם המשתמש בחר שפה מפורשת.
       AppL10n.use(systemLanguage());
       downloads.startSha256 = NativeSha256Sink.new;
+      downloads.aroundChildStart = BackgroundPriority.instance.aroundChildStart;
       OtzariaInstaller.sha256OfFile = nativeFileSha256;
 
       // תופס שגיאות שה-widgets framework עצמו זורק (למשל בתוך build/layout).

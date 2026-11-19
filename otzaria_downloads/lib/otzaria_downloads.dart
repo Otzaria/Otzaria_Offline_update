@@ -10,6 +10,7 @@ import 'src/network_errors.dart';
 
 export 'src/atomic_file.dart'
     show isAtomicTempNameOf, writeBytesAtomically, writeStringAtomically;
+export 'src/child_start.dart';
 export 'src/github_api.dart';
 export 'src/network_errors.dart';
 export 'src/windows_elevation.dart';

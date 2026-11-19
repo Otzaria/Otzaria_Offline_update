@@ -87,7 +87,8 @@ class AppSession extends ChangeNotifier {
   })  : _noticesStore = noticesStore,
         _injectedDriveWrites = driveWrites,
         _injectedSleepInhibitor = sleepInhibitor,
-        _backgroundPriority = backgroundPriority ?? BackgroundPriority() {
+        _backgroundPriority =
+            backgroundPriority ?? BackgroundPriority.instance {
     _android = AndroidModuleController(
       dataDir: dataDir,
       stateDir: stateFilesDir,

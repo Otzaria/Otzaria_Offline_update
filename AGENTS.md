@@ -519,51 +519,35 @@ it off for every step but the last. Each unverified step must write its marker
 `verifyFromHash: true` even after rollback or if its contents cannot be parsed.
 
 **Companions stage beside the DB's last patch but commit only after it.**
-The whole-DB step is one isolate call in the core, so `applyDelta` calls
-`onFinalStepStart` right before the last patch's isolate and
-`LibraryManager._applyUpdate` starts the install then. `ConcurrentCompanions`
-mutes its progress until `join` (the DB owns the stage label) and holds its
-error until after `_finishDbUpdate` (a companion failure never fails the DB).
-Its `beforeCommit` awaits the DB outcome and then checks that Otzaria is
-closed: on DB failure `abandon` makes it throw the cancellation, so the staged
-files are dropped, nothing is committed or recorded and no warning is emitted.
-New and old files therefore never mix. It runs only when `_companionOverlapFits`
-knows free space holds the last patch's work plus the largest companion's
-extracted size (Talmud 2x); unknown size means sequential. Full-download-only
-updates stay sequential. Do not move `saveDeliveredCompanions` before the join.
+`applyDelta` calls `onFinalStepStart` before the last patch's isolate and
+`ConcurrentCompanions` starts the install there; its progress and warnings
+are held until `join`, and its `beforeCommit` awaits the DB outcome. On DB
+failure `abandon` drops the staged files and the held warnings, so new and old
+files never mix. Only when `_companionOverlapFits` proves the space; the
+decision is logged. Keep `saveDeliveredCompanions` after the join.
 
 **The next patch is fetched and extracted while the current one is applied.**
-`_prefetchNext` starts it only when free space is *known* to hold both staged
-patches (`db + 2*current + next`, plus 2x the download when remote); unknown or
-short space means sequential. When its step starts, `db + next` is checked again
-(the sequential gate minus the bytes already staged); failure discards the file.
-Its progress is held back until its own step is reached, so the UI never shows
-step N+1 during step N; an error is held too and surfaces then. Any exit from
-the loop (failure, cancel) sets `abort`, **waits** for the fetch to settle and
-deletes the staged file. A crash leaves a `.db` in `.seforim-update-tmp`
-(`recoverIfNeeded` deletes it) and maybe a `*.extracting`, which
-`applyDelta` removes at its start. Nothing in `OfflineLibraryDbRecoveryService`
-touches that dir during a step; keep it so.
+`_prefetchNext` starts only when free space is proven for both staged patches,
+and its step re-checks `db + next`. Its progress and error wait for its own
+step; any exit from the loop aborts it, **waits** for it and deletes the file
+(a dropped error is logged). A crash leaves files only in
+`.seforim-update-tmp`, cleaned by `recoverIfNeeded` and at `applyDelta` start;
+keep `OfflineLibraryDbRecoveryService` out of that dir during a step.
 
 **The last step verifies only the tables the chain changed (maintainer
-decision).** `_applyPatchInIsolate` passes `enablePartialTableVerification`
-and the core compares `toTableContentHashes` for the tables the last patch
-touched; the rest are **not verified, now or later** (no `verifyTableHashes`
-afterwards). `_chainVerifyManifest` widens "changed" to the whole chain: a
-table changed in an unverified earlier step is marked changed in the last
-manifest's `fromTableContentHashes`, otherwise it would be skipped. A step
-without both table-hash maps (old manifest) falls back to the whole-DB hash.
-The skipped tables rest on the chain's start state being trusted (an earlier
-verified apply, or `verifyFromHash` when a marker is left). The apply logs one
-line (`אימות סופי חלקי`) with bytes per verified table and the skipped ones.
-`verify_total_bytes.txt` is written only after a full verification; a partial
-one feeds `verify_table_bytes.json` (the core's `verifyTableBytesHint`) and the
-full-DB hint is not passed then, so the bar is not scaled to the whole DB.
+decision); the rest are never verified.** It cut a third of the apply (#281).
+`chainVerifyManifest` marks every table not identical across all the chain's
+maps, or whose rows an earlier step changed; a chain broken by
+`toContentHash`/`fromContentHash` or a step without table maps verifies the
+whole DB. The skipped tables rest on a trusted start (`.unverified` →
+`verifyFromHash`). Logged as `final verification (partial)`;
+`verify_table_bytes.json` is its progress hint.
 
 **The hash verification is never removed, never optional and never a setting.**
 It is the only thing that stops a wrong database silently. A change that drops
 the check in one place must add it in another, or mark the DB as needing a full
-download. `PRAGMA synchronous` is untouched for the same reason.
+download; the partial final check above is the one sanctioned narrowing.
+`PRAGMA synchronous` is untouched for the same reason.
 
 **The verification pass is row reads through FFI — not SHA (2%) and not encoding
 (0%).** Measured on the real DB: `link` takes 45s for 184MB (4 MB/s), so the time
@@ -949,8 +933,9 @@ starts the download; a read-only drive keeps it.
 **The Otzaria installer cache keeps the same mark.** `ensureAssetCached` read the
 whole cached installer on every online sync; a `<asset>.verified` sidecar
 (`sha256|size|mtime`, written after a passing download or hash) now skips it, and
-a changed size or mtime re-hashes. The install-time check still reads the file:
-the offline machine has no other way to catch a corrupt drive.
+a changed size or mtime re-hashes, and `MirrorJunkSweeper` keeps it. The
+install-time check still reads the file: the offline machine has no other way
+to catch a corrupt drive.
 `OtzariaInstaller.sha256OfFile` is the hash hook (pure Dart in tests, native
 `Sha256Stream` in an isolate from the launcher's `main`).
 
@@ -1049,12 +1034,13 @@ the engine deletes a file whose close failed, losing the on-drive prefix.
 `confirmClose` shows a closing layer and logs dropped bytes and stage times.
 Details: `otzaria_downloads/README.md`.
 
-**Heavy work runs at background priority.** Parallel downloads, hashing, zstd
-decompression and `quick_check` at normal priority made the whole computer
-sluggish (#281). While any long task runs, `AppSession._syncSleepInhibition`
-holds one `BackgroundPriority` lease (`services/background_priority.dart`:
-Windows `PROCESS_MODE_BACKGROUND_BEGIN/END`, ref-counted, no-op elsewhere).
-Do not add a second entry point; add the task to that condition instead.
+**Heavy work runs at below-normal CPU priority, never in background mode.**
+Downloads, hashing and zstd made the whole computer sluggish (#281).
+`PROCESS_MODE_BACKGROUND_BEGIN` trims the working set to ~32MB, which a
+multi-GB SQLite apply turns into constant page faults, so `BackgroundPriority`
+uses `BELOW_NORMAL_PRIORITY_CLASS`, one lease from `AppSession`. Windows passes
+that class to a child, so every launch of a program the user keeps goes through
+`aroundChildStart` (`otzaria_downloads`), which lifts it; route new launches too.
 
 ### 5.3 State that travels on the drive
 

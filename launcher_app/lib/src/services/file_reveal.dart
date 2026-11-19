@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart' show aroundChildStart;
 import 'package:otzaria_manager/otzaria_manager.dart' show AndroidTools;
 
 /// פותח תיקייה במנהל הקבצים של המערכת — Explorer בווינדוס, Finder ב-macOS.
@@ -9,10 +10,13 @@ import 'package:otzaria_manager/otzaria_manager.dart' show AndroidTools;
 /// ואילו כאן רוצים בדיוק דבר אחד — לפתוח חלון על התיקייה כדי שהמשתמש יוכל
 /// להעתיק ממנה קבצים ל-USB.
 abstract final class FileReveal {
+  static Future<ProcessResult> _explorer(List<String> arguments) =>
+      aroundChildStart(() => Process.run('explorer.exe', arguments));
+
   static Future<bool> openAndroidToolsUrl() async {
     try {
       if (Platform.isWindows) {
-        await Process.run('explorer.exe', [AndroidTools.downloadUrl]);
+        await _explorer([AndroidTools.downloadUrl]);
         return true;
       }
       if (Platform.isMacOS) {
@@ -38,7 +42,7 @@ abstract final class FileReveal {
       if (Platform.isWindows) {
         // explorer.exe מחזיר קוד יציאה 1 גם כשהוא הצליח לפתוח את החלון —
         // ולכן אין כאן בדיקת exitCode. (התנהגות מתועדת ומוכרת שלו.)
-        await Process.run('explorer.exe', [path]);
+        await _explorer([path]);
         return true;
       }
 
@@ -66,7 +70,7 @@ abstract final class FileReveal {
     try {
       if (Platform.isWindows) {
         // כמו בתיקייה: explorer.exe מחזיר 1 גם בהצלחה.
-        await Process.run('explorer.exe', [uri.toString()]);
+        await _explorer([uri.toString()]);
         return true;
       }
       if (Platform.isMacOS) {

@@ -31,10 +31,8 @@ if [ -z "$touched" ]; then
   exit 0
 fi
 
-# טסטים שקשורים לשינוי בחבילה: קובצי טסט ששונו, וטסטים שמייבאים קובץ lib
-# שהשתנה או ששמם דומה לו. "ALL" — כל החבילה: כשקובץ lib לא נמצא בשום טסט
-# (רובם מייבאים רק את קובץ הייצוא), בשינוי עזרי טסט / pubspec, או FULL_TESTS=1.
-# CI מריץ את כל החבילות בכל push ו-PR, ושם נתפסת שבירה עקיפה.
+# טסטים שנוגעים בקובץ שהשתנה; כל נתיב אחר (assets, עזרי טסט, pubspec) או
+# FULL_TESTS=1 מריצים את כל החבילה. CI מריץ הכול.
 related_tests() {
   pkg=$1
   if [ -n "$FULL_TESTS" ]; then echo ALL; return; fi
@@ -46,6 +44,11 @@ related_tests() {
     esac
     if [ -n "$prefix" ]; then
       case "$f" in "$prefix"*) ;; *) continue ;; esac
+    else
+      case "$f" in
+        lib/*|test/*|bin/*|pubspec.yaml|pubspec.lock|analysis_options.yaml) ;;
+        *) continue ;;
+      esac
     fi
     rel=${f#"$prefix"}
     case "$rel" in
@@ -63,7 +66,7 @@ related_tests() {
         )
         if [ -z "$hits" ]; then echo ALL; return; fi
         out="$out $hits" ;;
-      lib/*)
+      *)
         echo ALL; return ;;
     esac
   done

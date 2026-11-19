@@ -241,6 +241,52 @@ void main() {
     expect(log.single, contains('schema_meta='));
   });
 
+  test('שורות שצעד מוקדם שינה בטבלה שהמניפסט הכריז כזהה נבדקות בסוף', () async {
+    if (skipWithoutZstd()) return;
+    writeSchema2Db(
+      dbPath,
+      version: 1,
+      rows: [
+        [1, 'aleph'],
+      ],
+    );
+    final r1 = reportOf(
+      state('s1.db', 1, [
+        [1, 'aleph'],
+      ]),
+    );
+    final r2 = reportOf(
+      state('s2.db', 2, [
+        [1, 'aleph'],
+      ]),
+    );
+    final r3 = reportOf(
+      state('s3.db', 3, [
+        [1, 'aleph'],
+      ]),
+    );
+
+    // Step 1 writes a row the manifests say never existed.
+    await expectLater(
+      applier.applyDelta(
+        plan: plan([
+          edge(
+            from: 1,
+            to: 2,
+            upsertRows: [
+              [2, 'bet'],
+            ],
+            before: r1,
+            after: r2,
+          ),
+          edge(from: 2, to: 3, upsertRows: const [], before: r2, after: r3),
+        ]),
+        dbPath: dbPath,
+      ),
+      throwsA(isA<PatchApplyException>()),
+    );
+  });
+
   group('chainVerifyManifest', () {
     const marker = 'changed-earlier-in-chain';
     const file = PatchFileEntry(
@@ -257,13 +303,15 @@ void main() {
       Map<String, String> to, {
       int fromSchema = 2,
       int toSchema = 2,
+      String? fromHash,
+      String? toHash,
     }) => DeltaManifest(
       fromVersion: 1,
       toVersion: 2,
       fromSchemaVersion: fromSchema,
       toSchemaVersion: toSchema,
-      fromContentHash: 'a',
-      toContentHash: 'b',
+      fromContentHash: fromHash ?? '$from',
+      toContentHash: toHash ?? '$to',
       fromTableContentHashes: from,
       toTableContentHashes: to,
       patchFiles: const [file],
@@ -297,6 +345,60 @@ void main() {
 
       expect(merged.fromTableContentHashes!.containsKey('t'), isFalse);
       expect(merged.toTableContentHashes!['t'], '4');
+    });
+
+    test('טבלה שלא השתנתה בשום צעד נשארת לא מסומנת', () {
+      final merged = LibraryUpdateApplier.chainVerifyManifest([
+        step({'a': '1', 'u': '7'}, {'a': '2', 'u': '7'}),
+        step({'a': '2', 'u': '7'}, {'a': '2', 'u': '7'}),
+      ])!;
+
+      expect(merged.fromTableContentHashes!['u'], '7');
+    });
+
+    test('release שפורסם מחדש באותה גרסה שובר את השרשרת: אימות מלא', () {
+      final republished = step({'a': '1', 't': 'Y'}, {'a': '1', 't': 'Y'});
+      expect(
+        LibraryUpdateApplier.chainVerifyManifest([
+          step({'a': '1', 't': 'W'}, {'a': '1', 't': 'X'}),
+          republished,
+        ]),
+        isNull,
+      );
+    });
+
+    test(
+      'hash של טבלה שאינו רציף בין צעדים מסומן גם כשאף צעד לא שינה אותה',
+      () {
+        final merged = LibraryUpdateApplier.chainVerifyManifest([
+          step({'a': '1', 't': 'X'}, {'a': '2', 't': 'X'}, toHash: 'h'),
+          step({'a': '2', 't': 'Y'}, {'a': '2', 't': 'Y'}, fromHash: 'h'),
+        ])!;
+
+        expect(merged.fromTableContentHashes!['t'], marker);
+      },
+    );
+
+    test('טבלה שחסרה במפה של צעד מוקדם מסומנת', () {
+      final merged = LibraryUpdateApplier.chainVerifyManifest([
+        step({'a': '1'}, {'a': '1'}, toHash: 'h'),
+        step({'a': '1', 'k': '3'}, {'a': '1', 'k': '3'}, fromHash: 'h'),
+      ])!;
+
+      expect(merged.fromTableContentHashes!['k'], marker);
+    });
+
+    test('טבלה שצעד מוקדם שינה בה שורות מסומנת גם כשהמפות זהות', () {
+      final merged = LibraryUpdateApplier.chainVerifyManifest(
+        [
+          step({'a': '1', 'r': '5'}, {'a': '1', 'r': '5'}),
+          step({'a': '1', 'r': '5'}, {'a': '1', 'r': '5'}),
+        ],
+        changedEarlier: {'r'},
+      )!;
+
+      expect(merged.fromTableContentHashes!['r'], marker);
+      expect(merged.fromTableContentHashes!['a'], '1');
     });
 
     test('צעד בלי מפת hash לטבלאות מחזיר null', () {
@@ -369,6 +471,35 @@ void main() {
       ).existsSync(),
       isFalse,
     );
+
+    // Without the hint the bar is scaled to the whole file and stays near 0.
+    final r3 = reportOf(
+      state('s3.db', 3, [
+        [1, 'aleph'],
+        [2, 'bet'],
+        [3, 'gimel'],
+      ]),
+    );
+    var maxVerify = 0.0;
+    await applier.applyDelta(
+      plan: plan([
+        edge(
+          from: 2,
+          to: 3,
+          upsertRows: [
+            [3, 'gimel'],
+          ],
+          before: r2,
+          after: r3,
+        ),
+      ]),
+      dbPath: dbPath,
+      onProgress: (e) {
+        final v = e.verifyProgress;
+        if (v != null && v > maxVerify) maxVerify = v;
+      },
+    );
+    expect(maxVerify, greaterThan(0.5));
   });
 
   test('מניפסט בלי hash לפי טבלאות נופל לאימות מלא', () async {

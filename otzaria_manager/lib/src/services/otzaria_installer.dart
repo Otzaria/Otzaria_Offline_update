@@ -241,7 +241,9 @@ class OtzariaInstaller {
 
   // `sha256|גודל|זמן-שינוי` ברגע האימות. עותק שלא השתנה אינו נקרא שוב בכל
   // סנכרון מקוון; ההתקנה עצמה כן מחשבת hash מחדש.
-  static String _verifiedMarkPath(File file) => '${file.path}.verified';
+  /// The sidecar that records a passing hash; the mirror sweep keeps it.
+  static String verifiedMarkPath(String installerPath) =>
+      '$installerPath.verified';
 
   static String? _verifiedMark(File file, String digest) {
     try {
@@ -257,7 +259,7 @@ class OtzariaInstaller {
     final expected = _verifiedMark(file, digest);
     if (expected == null) return false;
     try {
-      return File(_verifiedMarkPath(file)).readAsStringSync().trim() ==
+      return File(verifiedMarkPath(file.path)).readAsStringSync().trim() ==
           expected;
     } catch (_) {
       return false;
@@ -268,13 +270,13 @@ class OtzariaInstaller {
     final mark = _verifiedMark(file, digest);
     if (mark == null) return;
     try {
-      File(_verifiedMarkPath(file)).writeAsStringSync(mark);
+      File(verifiedMarkPath(file.path)).writeAsStringSync(mark);
     } catch (_) {}
   }
 
   static void _clearVerifiedMark(File file) {
     try {
-      File(_verifiedMarkPath(file)).deleteSync();
+      File(verifiedMarkPath(file.path)).deleteSync();
     } catch (_) {}
   }
 

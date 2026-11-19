@@ -177,13 +177,23 @@ void main() {
     await applier.applyDelta(
       plan: plan,
       dbPath: dbPath,
-      onProgress: recordProgress,
+      onProgress: (e) {
+        recordProgress(e);
+        if (e.stepIndex == 2 &&
+            (e.stage == LibraryApplyStage.decompressingPatch ||
+                e.stage == LibraryApplyStage.downloadingPatch)) {
+          events.add('fetch-progress:2');
+        }
+      },
       onStepApplied: (_, v) => events.add('applied:$v'),
     );
 
     final s2 = events.indexOf('stream:2_3');
     expect(s2, greaterThan(events.indexOf('apply:1')));
-    expect(s2, lessThan(events.indexOf('apply:2')));
+    // Sequentially patch 2 is streamed only after step 1 is applied.
+    expect(s2, lessThan(events.indexOf('applied:2')));
+    final held = events.indexOf('fetch-progress:2');
+    expect(held == -1 || held > events.indexOf('applied:2'), isTrue);
     expect(hashOf(dbPath), chainHashes().h3);
     expect(leftovers(), isEmpty);
   });

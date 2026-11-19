@@ -196,6 +196,43 @@ void main() {
         expect(File('${cachedPath()}.verified').existsSync(), isFalse);
       });
 
+      test('בהתקנה המתקין נקרא תמיד, גם כשהסימון תואם', () async {
+        final installer = installerWith(mockDownload(_installerBytes));
+        addTearDown(installer.dispose);
+        await ensure(installer);
+        final file = File(cachedPath());
+        final stamp = file.lastModifiedSync();
+        file.writeAsStringSync(_installerBytes.replaceFirst('i', 'X'));
+        file.setLastModifiedSync(stamp);
+
+        await expectLater(
+          installer.installFromFile(
+            release: OtzariaRelease(
+              tagName: _tag,
+              name: 'Otzaria $_tag',
+              isPrerelease: false,
+              isDraft: false,
+              publishedAt: null,
+              installerKind: OtzariaInstallerKind.windowsSetupExe,
+              installerAssetName: _assetName,
+              installerDownloadUrl: 'https://example/$_assetName',
+              installerSizeBytes: _installerBytes.length,
+              installerSha256: digest,
+            ),
+            installerPath: file.path,
+            installDir: null,
+          ),
+          throwsA(
+            isA<OtzariaUserError>().having(
+              (e) => e.message,
+              'message',
+              AppL10n.strings.appDomain.installerDigestMismatch,
+            ),
+          ),
+        );
+        expect(hashed, 1);
+      });
+
       test('שינוי תוכן באותו גודל מבטל את הסימון וההורדה חוזרת', () async {
         final installer = installerWith(mockDownload(_installerBytes));
         addTearDown(installer.dispose);

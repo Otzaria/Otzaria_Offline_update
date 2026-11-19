@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart' as downloads;
 import 'package:otzaria_downloads/otzaria_downloads.dart' show ElevatedProcess;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
@@ -351,6 +352,34 @@ void main() {
             temp.path
           ],
         ]);
+      });
+
+      test('both starts run inside aroundChildStart', () async {
+        final original = downloads.aroundChildStart;
+        addTearDown(() => downloads.aroundChildStart = original);
+        var inside = false;
+        downloads.aroundChildStart = <T>(Future<T> Function() start) async {
+          inside = true;
+          try {
+            return await start();
+          } finally {
+            inside = false;
+          }
+        };
+        final seen = <bool>[];
+        await PluginDirectInstaller.openProtocolUrl(
+          'otzaria://x',
+          otzariaLaunchPath: exe,
+          startProcess: (e, a, {workingDirectory}) {
+            seen.add(inside);
+            throw ProcessException(e, a, 'requires elevation', 740);
+          },
+          startElevated: (e, a, {workingDirectory}) async {
+            seen.add(inside);
+            return ProcessResult(0, 0, '', '');
+          },
+        );
+        expect(seen, [true, true]);
       });
 
       test('other ProcessException is reported as before, no elevation',

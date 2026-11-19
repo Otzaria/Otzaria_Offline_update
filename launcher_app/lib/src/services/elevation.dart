@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:otzaria_downloads/otzaria_downloads.dart' show ElevatedProcess;
+import 'package:otzaria_downloads/otzaria_downloads.dart'
+    show ElevatedProcess, aroundChildStart;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
@@ -75,10 +76,12 @@ class Elevation {
     String executable,
     List<String> arguments,
   ) async {
-    final result = await ElevatedProcess.start(
-      executable,
-      arguments,
-      workingDirectory: p.dirname(executable),
+    final result = await aroundChildStart(
+      () => ElevatedProcess.start(
+        executable,
+        arguments,
+        workingDirectory: p.dirname(executable),
+      ),
     );
     return result.exitCode;
   }
