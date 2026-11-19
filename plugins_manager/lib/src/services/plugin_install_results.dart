@@ -149,6 +149,7 @@ class PluginInstallResultsReader {
     int generation,
   ) async {
     if (generation != _generation) return PluginInstallResultsSnapshot._empty;
+    List<String>? lines;
     try {
       final file = File(path);
       var stat = await file.stat();
@@ -158,12 +159,13 @@ class PluginInstallResultsReader {
         }
         if (stat.type != FileSystemEntityType.file) break;
         final previous = _cache;
-        if (previous != null &&
+        if (attempt == 0 &&
+            previous != null &&
             previous.path == path &&
             _sameStat(previous.stat, stat)) {
           return previous.snapshot;
         }
-        final lines = await file.readAsLines();
+        lines = await file.readAsLines();
         final after = await file.stat();
         if (generation != _generation) {
           return PluginInstallResultsSnapshot._empty;
@@ -177,10 +179,14 @@ class PluginInstallResultsReader {
         stat = after;
       }
     } on FileSystemException {
-      // Ignore unreadable results and let the controller scan installed plugins.
+      // The log can disappear or be unreadable during rotation.
     }
-    if (generation == _generation) _cache = null;
-    return PluginInstallResultsSnapshot._empty;
+    if (generation != _generation) return PluginInstallResultsSnapshot._empty;
+    _cache = null;
+    // A final poll can still use the last read, but it must never be cached.
+    return lines == null
+        ? PluginInstallResultsSnapshot._empty
+        : PluginInstallResultsSnapshot._fromLines(lines);
   }
 
   static bool _sameStat(FileStat left, FileStat right) =>

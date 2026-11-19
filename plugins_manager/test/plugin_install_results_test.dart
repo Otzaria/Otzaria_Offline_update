@@ -296,6 +296,45 @@ void main() {
       expect((await read()).latestFor(path, at)?.cancelled, isTrue);
     });
 
+    test('append and rotation during one poll return the newest read',
+        () async {
+      write([
+        entry('unrelated.otzplugin', 'installed', at),
+        entry(path, 'installed', at)
+      ]);
+      final cancellation = '${jsonEncode(entry(path, 'cancelled', at))}\n';
+      io.afterRead = () async {
+        if (io.reads == 1) {
+          await append(cancellation);
+        } else {
+          io.afterRead = null;
+          final rotated =
+              await File('${file.path}.tmp').writeAsString(cancellation);
+          await rotated.rename(file.path);
+        }
+      };
+
+      expect((await read()).latestFor(path, at)?.cancelled, isTrue);
+      expect(io.reads, 2);
+      expect((await read()).latestFor(path, at)?.cancelled, isTrue);
+      expect(io.reads, 3);
+    });
+
+    test('failed retry preserves the result read in this poll', () async {
+      write([entry(path, 'cancelled', at)]);
+      io.afterRead = () async {
+        io.afterRead = null;
+        await append('\n');
+        io.beforeRead = () async => throw FileSystemException('removed');
+      };
+
+      expect((await read()).latestFor(path, at)?.cancelled, isTrue);
+      expect(io.reads, 2);
+      io.beforeRead = null;
+      expect((await read()).latestFor(path, at)?.cancelled, isTrue);
+      expect(io.reads, 3);
+    });
+
     test('truncation during reading returns no stale success', () async {
       write([entry(path, 'installed', at)]);
       await read();
@@ -357,6 +396,7 @@ final class _ResultIo extends IOOverrides {
   var stats = 0;
   FileSystemException? statError;
   Future<void> Function()? beforeRead;
+  Future<void> Function()? afterRead;
 
   @override
   File createFile(String path) {
@@ -386,7 +426,9 @@ class _ResultFile implements File {
     io.reads++;
     await io.beforeRead?.call();
     io.bytesRead += await real.length();
-    return real.readAsLines(encoding: encoding);
+    final lines = await real.readAsLines(encoding: encoding);
+    await io.afterRead?.call();
+    return lines;
   }
 
   @override
