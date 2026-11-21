@@ -4312,6 +4312,10 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get downloadingLabel => 'מוריד…';
   @override
+  String get cancelDownloadButton => 'ביטול ההורדה';
+  @override
+  String get downloadCancelledSnack => 'ההורדה בוטלה';
+  @override
   String get checkOnlineButton => 'בדיקה ברשת';
   @override
   String get checkAllOnlineButton => 'בדיקה ברשת לכל התוכנות';

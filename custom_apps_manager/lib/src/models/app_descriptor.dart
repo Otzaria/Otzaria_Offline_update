@@ -305,3 +305,8 @@ class AppDescriptorException implements Exception {
   @override
   String toString() => message;
 }
+
+/// המשתמש ביטל הורדה של קובץ התקנה. אינה תקלה, ולכן אין לה הודעה.
+class CustomAppDownloadCancelled implements Exception {
+  const CustomAppDownloadCancelled();
+}

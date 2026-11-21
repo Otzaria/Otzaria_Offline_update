@@ -585,6 +585,79 @@ void main() {
       expect(built.requests, hasLength(2));
       expect(stored.version, '3.0');
     });
+
+    test('#288: ביטול עוצר את ההורדה ולא משאיר קובץ התקנה', () async {
+      final built = await githubManager(releaseJson('v3.0', 'App-3.0.exe'));
+
+      await expectLater(
+        built.manager.downloadFromGithub(
+          'org.example.gh',
+          isCancelled: () => true,
+        ),
+        throwsA(isA<CustomAppDownloadCancelled>()),
+      );
+
+      final entry = await built.manager.load('org.example.gh');
+      expect(entry?.installer, isNull);
+      final leftovers = Directory(root)
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.contains('App-3.0'));
+      expect(leftovers, isEmpty);
+    });
+
+    test('#288: ביטול באמצע הזרם מוחק את הקובץ החלקי ואת מצב ההמשך', () async {
+      final latest = releaseJson('v3.0', 'App-3.0.exe');
+      final m = CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1',
+        githubClient: GithubAppClient(
+          httpClient: MockClient.streaming((request, _) async {
+            if (request.url.host != 'example.test') {
+              return http.StreamedResponse(
+                Stream.value(utf8.encode(jsonEncode([latest]))),
+                200,
+                headers: {'content-type': 'application/json; charset=utf-8'},
+              );
+            }
+            Stream<List<int>> body() async* {
+              yield bytes.sublist(0, 5);
+              await Future<void>.delayed(const Duration(milliseconds: 400));
+              yield bytes.sublist(5);
+            }
+
+            return http.StreamedResponse(body(), 200,
+                contentLength: bytes.length, headers: {'etag': '"x"'});
+          }),
+        ),
+      );
+      await m.add(
+        const AppDescriptor(
+          id: 'org.example.gh',
+          name: 'gh',
+          sourceKind: AppSourceKind.github,
+          github: source,
+        ),
+      );
+      var received = 0;
+
+      await expectLater(
+        m.downloadFromGithub(
+          'org.example.gh',
+          onProgress: (got, _) => received = got,
+          isCancelled: () => received > 0,
+        ),
+        throwsA(isA<CustomAppDownloadCancelled>()),
+      );
+
+      expect(received, greaterThan(0));
+      expect((await m.load('org.example.gh'))?.installer, isNull);
+      final leftovers = Directory(root)
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.contains('App-3.0'));
+      expect(leftovers, isEmpty);
+    });
   });
 
   /// ההצהרה "הקובץ הוא התוכנה עצמה" היא הדבר היחיד על הקובץ שאי אפשר

@@ -9,6 +9,7 @@ import '../../services/byte_size.dart';
 import '../../services/native_file_dialogs.dart';
 import '../../widgets/widgets_exports.dart';
 import '../store_kit/store_kit.dart';
+import 'custom_app_cancel_download.dart';
 import 'custom_app_detail_view.dart';
 import 'custom_app_install_action.dart';
 import 'custom_app_store_card.dart';
@@ -253,6 +254,8 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
           ),
         ),
       if (_c.isLearning) InfoProgressRow(stage: t.learningLabel),
+      if (_c.downloadingId != null || _c.isDownloadingAll)
+        CustomAppCancelDownloadButton(controller: _c),
     ];
     if (rows.isEmpty) return null;
     return AppCard(
@@ -358,7 +361,11 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
     });
     final stored = await download;
     if (stored == null) {
-      UiSnack.showFailure(_c.errorMessage);
+      if (_c.lastDownloadCancelled) {
+        UiSnack.show(AppL10n.strings.customApps.downloadCancelledSnack);
+      } else {
+        UiSnack.showFailure(_c.errorMessage);
+      }
       return;
     }
     UiSnack.showSuccess(
@@ -408,6 +415,25 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
     final result = await _c.downloadAllOutdated();
     final t = AppL10n.strings.customApps;
     if (result.checked == 0 && result.notChecked == 0) return;
+    if (_c.lastDownloadCancelled) {
+      // What finished or failed before the cancel is still news.
+      final parts = [
+        t.downloadCancelledSnack,
+        if (result.downloaded > 0) t.downloadAllDoneSnack(result.downloaded),
+        if (result.failed > 0) t.downloadAllSomeFailed(result.failed),
+      ];
+      final sentences = [
+        for (final part in parts)
+          part.endsWith('.') ? part.substring(0, part.length - 1) : part,
+      ];
+      final text = '${sentences.join('. ')}.';
+      if (result.failed > 0) {
+        UiSnack.showError(text);
+      } else {
+        UiSnack.show(text);
+      }
+      return;
+    }
 
     // לא נבדקה אף אחת = אין רשת. אין טעם לומר "אין מה להוריד" על כך.
     if (result.checked == 0) {

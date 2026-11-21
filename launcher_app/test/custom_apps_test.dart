@@ -1812,6 +1812,104 @@ void main() {
       expect(result.checked, 2);
     });
 
+    testWidgets('#288: ביטול באמצע הורדת הכול עוצר גם את הבאות, בלי שגיאה',
+        (tester) async {
+      late ({int checked, int downloaded, int failed, int notChecked}) result;
+      late _FakeManager fake;
+      late CustomAppsController controller;
+      await tester.runAsync(() async {
+        final built = await fakeController(
+          {'a': '2.0.0', 'b': '2.0.0'},
+          ids: ['a', 'b'],
+        );
+        fake = built.fake;
+        controller = built.controller;
+        fake.duringDownload = (_) => controller.cancelDownload();
+        await controller.load();
+        result = await controller.downloadAllOutdated();
+      });
+
+      expect(fake.downloaded, hasLength(1));
+      expect(result.downloaded, 0);
+      expect(result.failed, 0);
+      expect(controller.lastDownloadCancelled, isTrue);
+      expect(controller.errorMessage, isNull);
+      expect(controller.cancelRequested, isFalse);
+      expect(controller.downloadingId, isNull);
+      controller.dispose();
+    });
+
+    testWidgets('#288: ביטול הורדה בודדת — אין קובץ ואין הודעת שגיאה',
+        (tester) async {
+      late CustomAppsController controller;
+      StoredInstaller? stored;
+      await tester.runAsync(() async {
+        final built = await fakeController({'a': '2.0.0'}, ids: ['a']);
+        controller = built.controller;
+        built.fake.duringDownload = (_) => controller.cancelDownload();
+        await controller.load();
+        stored = await controller.download('a');
+      });
+
+      expect(stored, isNull);
+      expect(controller.lastDownloadCancelled, isTrue);
+      expect(controller.errorMessage, isNull);
+      expect(controller.cancelRequested, isFalse);
+      controller.dispose();
+    });
+
+    testWidgets('ביטול קודם אינו נשאר להורדת הכול שאין בה מה להוריד',
+        (tester) async {
+      late CustomAppsController controller;
+      late ({int checked, int downloaded, int failed, int notChecked}) result;
+      await tester.runAsync(() async {
+        final built = await fakeController(
+          {'a': '2.0.0', 'b': '1.4.2'},
+          ids: ['a', 'b'],
+        );
+        controller = built.controller;
+        built.fake.duringDownload = (_) => controller.cancelDownload();
+        await controller.load();
+        await controller.download('a');
+        built.fake.duringDownload = null;
+        await controller.remove('a');
+        result = await controller.downloadAllOutdated();
+      });
+
+      expect(result.checked, 1);
+      expect(result.downloaded, 0);
+      expect(controller.lastDownloadCancelled, isFalse);
+      controller.dispose();
+    });
+
+    testWidgets('ביטול אחרי תוכנה שנכשלה: הכשל נספר', (tester) async {
+      late CustomAppsController controller;
+      late ({int checked, int downloaded, int failed, int notChecked}) result;
+      addTearDown(AppLogger.resetForTest);
+      await tester.runAsync(() async {
+        // The failure is logged by `_guard`.
+        AppLogger.resetForTest();
+        await AppLogger.init(tempDir.path);
+        final built = await fakeController(
+          {'a': '2.0.0', 'b': '2.0.0'},
+          ids: ['a', 'b'],
+        );
+        controller = built.controller;
+        final fake = built.fake;
+        fake.duringDownload = (id) {
+          if (id == 'a') throw const SocketException('אין רשת');
+          controller.cancelDownload();
+        };
+        await controller.load();
+        result = await controller.downloadAllOutdated();
+      });
+
+      expect(result.failed, 1);
+      expect(result.downloaded, 0);
+      expect(controller.lastDownloadCancelled, isTrue);
+      controller.dispose();
+    });
+
     // "לא נבדק" אינו "מעודכן" — הוא נספר בנפרד ונאמר למשתמש.
     testWidgets('תוכנה שהבדיקה שלה נכשלה נספרת ואינה יורדת', (tester) async {
       late ({int checked, int downloaded, int failed, int notChecked}) result;
@@ -2822,6 +2920,9 @@ class _FakeManager extends CustomAppsManager {
 
   Completer<void>? peekGate;
 
+  /// רץ באמצע ההורדה — כאן הבדיקה לוחצת "ביטול ההורדה".
+  void Function(String id)? duringDownload;
+
   @override
   Future<GithubRelease?> peekLatestOnline(AppDescriptor descriptor) async {
     peeked.add(descriptor.id);
@@ -2843,10 +2944,13 @@ class _FakeManager extends CustomAppsManager {
     GithubRelease? release,
     GithubSource? releaseSource,
     void Function(int received, int total)? onProgress,
+    bool Function()? isCancelled,
   }) async {
     downloaded.add(id);
     passedReleases[id] = release;
     passedSources[id] = releaseSource;
+    duringDownload?.call(id);
+    if (isCancelled?.call() ?? false) throw const CustomAppDownloadCancelled();
     return attachInstaller(
       id,
       sourcePath: sourceFile.path,

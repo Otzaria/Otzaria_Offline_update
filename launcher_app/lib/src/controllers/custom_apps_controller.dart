@@ -383,6 +383,21 @@ class CustomAppsController extends ChangeNotifier
   int? downloadReceived;
   int? downloadTotal;
 
+  /// "ביטול ההורדה" נלחץ — עוצר את ההורדה שרצה, ובהורדת הכול גם את הבאות.
+  bool cancelRequested = false;
+
+  /// ההורדה האחרונה הסתיימה בביטול, לא בתקלה.
+  bool lastDownloadCancelled = false;
+
+  void cancelDownload() {
+    if ((downloadingId == null && !isDownloadingAll) || cancelRequested) {
+      return;
+    }
+    cancelRequested = true;
+    notifyListeners();
+    notifyProgress();
+  }
+
   /// חשוף לטופס — הוא צריך להביא את רשימת הקבצים של ה-release **לפני**
   /// שהתוכנה נרשמה בכלל.
   GithubAppClient get github => _manager.github;
@@ -615,6 +630,7 @@ class CustomAppsController extends ChangeNotifier
     if (isCheckingAll || isDownloadingAll || downloadingId != null) {
       return nothing;
     }
+    lastDownloadCancelled = false;
     final online = _onlineApps;
     if (online.isEmpty) return nothing;
 
@@ -645,15 +661,31 @@ class CustomAppsController extends ChangeNotifier
 
     downloadAllTotal = targets.length;
     downloadAllDone = 0;
+    cancelRequested = false;
     notifyListeners();
     var downloaded = 0;
+    var failed = 0;
+    var stopped = false;
     try {
       for (final id in targets) {
-        if (await download(id) != null) downloaded++;
+        if (cancelRequested) {
+          stopped = true;
+          break;
+        }
+        if (await download(id) != null) {
+          downloaded++;
+        } else if (lastDownloadCancelled) {
+          stopped = true;
+        } else {
+          failed++;
+        }
         downloadAllDone = (downloadAllDone ?? 0) + 1;
         notifyListeners();
       }
     } finally {
+      // A cancel pressed after the last item stopped nothing.
+      lastDownloadCancelled = stopped;
+      cancelRequested = false;
       downloadAllTotal = null;
       downloadAllDone = null;
       notifyListeners();
@@ -661,7 +693,7 @@ class CustomAppsController extends ChangeNotifier
     return (
       checked: checked,
       downloaded: downloaded,
-      failed: targets.length - downloaded,
+      failed: failed,
       notChecked: notChecked,
     );
   }
@@ -671,22 +703,33 @@ class CustomAppsController extends ChangeNotifier
     downloadingId = id;
     downloadReceived = null;
     downloadTotal = null;
+    lastDownloadCancelled = false;
+    if (!isDownloadingAll) cancelRequested = false;
     notifyListeners();
 
     final checked = _onlineReleases[id];
     final stored = await _guard(
-      () => _manager.downloadFromGithub(
-        id,
-        release: checked?.release,
-        releaseSource: checked?.source,
-        onProgress: (received, total) {
-          downloadReceived = received;
-          downloadTotal = total;
-          notifyProgress();
-        },
-      ),
+      () async {
+        try {
+          return await _manager.downloadFromGithub(
+            id,
+            release: checked?.release,
+            releaseSource: checked?.source,
+            onProgress: (received, total) {
+              downloadReceived = received;
+              downloadTotal = total;
+              notifyProgress();
+            },
+            isCancelled: () => cancelRequested || isDisposed,
+          );
+        } on CustomAppDownloadCancelled {
+          lastDownloadCancelled = true;
+          return null;
+        }
+      },
     );
 
+    if (!isDownloadingAll) cancelRequested = false;
     downloadingId = null;
     _onlineReleases.remove(id);
     if (stored != null) {

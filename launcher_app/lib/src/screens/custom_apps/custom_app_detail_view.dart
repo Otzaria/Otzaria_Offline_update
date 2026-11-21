@@ -10,6 +10,7 @@ import '../../services/timestamps.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 import '../store_kit/store_kit.dart';
+import 'custom_app_cancel_download.dart';
 import 'custom_app_status.dart';
 import 'custom_app_store_card.dart';
 
@@ -187,15 +188,21 @@ class CustomAppDetailView extends StatelessWidget {
     return ListenableBuilder(
       key: progressKey,
       listenable: controller.progress,
-      builder: (context, _) => InfoProgressRow(
-        stage: t.downloadingLabel,
-        progress: (controller.downloadTotal ?? 0) > 0
-            ? (controller.downloadReceived ?? 0) / controller.downloadTotal!
-            : null,
-        detail: formatBytesProgress(
-          controller.downloadReceived,
-          controller.downloadTotal,
-        ),
+      builder: (context, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InfoProgressRow(
+            stage: t.downloadingLabel,
+            progress: (controller.downloadTotal ?? 0) > 0
+                ? (controller.downloadReceived ?? 0) / controller.downloadTotal!
+                : null,
+            detail: formatBytesProgress(
+              controller.downloadReceived,
+              controller.downloadTotal,
+            ),
+          ),
+          CustomAppCancelDownloadButton(controller: controller),
+        ],
       ),
     );
   }

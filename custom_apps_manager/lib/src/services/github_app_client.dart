@@ -115,6 +115,7 @@ class GithubAppClient {
     GithubAsset asset,
     String destinationPath, {
     void Function(int received, int total)? onProgress,
+    bool Function()? isCancelled,
   }) async {
     final result = await downloadFile(
       client: _http,
@@ -124,6 +125,11 @@ class GithubAppClient {
       connectTimeout: timeout,
       stallTimeout: stallTimeout,
       onProgress: onProgress,
+      checkCancelled: isCancelled == null
+          ? null
+          : () {
+              if (isCancelled()) throw const CustomAppDownloadCancelled();
+            },
       calculateSha256: true,
       statusError: (status) => AppDescriptorException(
           AppL10n.strings.customAppsDomain.downloadFailed(status)),

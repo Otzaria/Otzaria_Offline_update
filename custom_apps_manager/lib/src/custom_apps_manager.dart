@@ -434,6 +434,7 @@ class CustomAppsManager {
     GithubRelease? release,
     GithubSource? releaseSource,
     void Function(int received, int total)? onProgress,
+    bool Function()? isCancelled,
   }) async {
     final t = AppL10n.strings.customAppsDomain;
     final store = await _store();
@@ -464,7 +465,12 @@ class CustomAppsManager {
     final temp = '$target.part';
     final StoredInstaller stored;
     try {
-      final digest = await github.download(asset, temp, onProgress: onProgress);
+      final digest = await github.download(
+        asset,
+        temp,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
       stored = StoredInstaller(
         fileName: asset.name,
         version: latest.version,
