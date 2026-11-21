@@ -170,7 +170,11 @@ plugins go into Otzaria's own folder. What moves to `stateDir` is the log, `laun
 `faq_customization.json`, `library_state.json`, `otzaria_install_state.json`,
 `custom_apps_announced.json` — and the state files belong there anyway ("which
 version is installed" describes the machine). Preferences are seeded once
-(`AppPaths.seedPreferences`); the state files deliberately are not.
+(`AppPaths.seedPreferences`), except `faq_customization.json`: it is re-copied
+whenever the drive copy changed since the last copy, tracked by a content hash
+in `seeded_preferences.json` — never by mtime: clocks differ between machines
+and FAT32 shifts mtimes at every DST change (#289). The state files
+deliberately are not seeded.
 
 **State files live in `<stateDir>/logs/`, not the root.** `AppPaths.stateFileNames`
 (`otzaria_install_state`, `library_state`, `custom_apps_announced`,
