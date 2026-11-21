@@ -196,6 +196,11 @@ void main() {
         stateDir: paths.stateDir,
         logsDirectory: AppLogger.instance.logDir,
         settings: settings,
+        machineDir: AppPaths.machineStateDir(
+          Platform.environment,
+          isWindows: Platform.isWindows,
+          isMacOS: Platform.isMacOS,
+        ),
       );
       // הנעילה נפתחת כאן, לא אחרי הפריים: עלייה שנתקעת לפניו תישאר עם ראיה.
       // הזיהוי והכתיבה אסינכרוניים ואינם עוצרים את הפריים (§5.9).

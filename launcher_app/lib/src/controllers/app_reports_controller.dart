@@ -4,6 +4,7 @@ import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:flutter/foundation.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
+import '../app_report/app_report_draft_store.dart';
 import '../app_report/launcher_crash_session.dart';
 import '../app_report/launcher_report_collector.dart';
 import '../self_update/launcher_version.dart';
@@ -22,17 +23,20 @@ class AppReportsController extends ChangeNotifier with DisposeGuard {
     this.appVersion = launcherVersion,
     String? host,
     this.isProcessAlive,
+    this.drafts,
   })  : host = host ?? UncleanExitDetector.localHost(),
         throttle = throttle ?? AutoCrashReportThrottle.inLogs(logsDirectory),
         redactor = redactor ?? AppReportRedactor.fromPlatform() {
     _changes = service.changes.listen((_) => unawaited(refresh()));
   }
 
-  /// התור ב-`<stateDir>/reports/launcher`, הנעילה והמגבלה ליד היומן.
+  /// התור ב-`<stateDir>/reports/launcher`, הנעילה והמגבלה ליד היומן. הטיוטה
+  /// ב-[machineDir] — לא מוסתרת ועם צילומי מסך, ולכן לעולם לא על הכונן.
   factory AppReportsController.forState({
     required String stateDir,
     required String logsDirectory,
     required SettingsController settings,
+    String? machineDir,
   }) {
     late final AppReportsController controller;
     controller = AppReportsController(
@@ -46,11 +50,16 @@ class AppReportsController extends ChangeNotifier with DisposeGuard {
       ),
       settings: settings,
       logsDirectory: logsDirectory,
+      drafts:
+          machineDir == null ? null : AppReportDraftStore.inState(machineDir),
     );
     return controller;
   }
 
   final AppReportService service;
+
+  /// הטיוטה של הדיווח הידני; `null` = הטופס בלי טיוטות.
+  final AppReportDraftStore? drafts;
   final AppReportAttachmentsCollector collector;
   final SettingsController settings;
   final String logsDirectory;

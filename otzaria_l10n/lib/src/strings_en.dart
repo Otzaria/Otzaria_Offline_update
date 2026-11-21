@@ -5011,6 +5011,18 @@ class _AppReports extends AppReportsStrings {
   String get emailInvalid => 'A valid address is required';
   @override
   String get sendButton => 'Send';
+  @override
+  String get saveDraftButton => 'Save draft';
+  @override
+  String get discardDraftButton => 'Delete draft';
+  @override
+  String get draftSavedSnack =>
+      'The draft was saved. It will open the next time you open the report.';
+  @override
+  String get draftSaveFailedSnack => 'Saving the draft failed.';
+  @override
+  String get draftRestoredNote =>
+      'Your saved draft was opened. You can edit it before sending.';
 
   @override
   String get imagesPrompt => 'Click to choose a screenshot';

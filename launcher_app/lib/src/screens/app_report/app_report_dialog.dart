@@ -65,11 +65,48 @@ class _AppReportDialogState extends State<AppReportDialog> {
   final _steps = TextEditingController();
   late final _email = TextEditingController(text: _form.email);
 
+  /// הטופס נפתח מטיוטה ששמרה — אז יש מה למחוק.
+  bool _hadDraft = false;
+
   @override
   void initState() {
     super.initState();
     _form.addListener(_onFormChanged);
-    unawaited(_form.loadAttachments());
+    unawaited(_load());
+  }
+
+  // The draft is restored before the fields appear, so no typing is lost.
+  Future<void> _load() async {
+    if (await _form.restoreDraft() && mounted) {
+      _hadDraft = true;
+      _title.text = _form.title;
+      _description.text = _form.description;
+      _steps.text = _form.steps;
+    }
+    await _form.loadAttachments();
+  }
+
+  Future<void> _saveDraft() async {
+    try {
+      await _form.saveDraft();
+    } catch (_) {
+      if (mounted) {
+        UiSnack.showError(context.strings.appReports.draftSaveFailedSnack);
+      }
+      return;
+    }
+    if (!mounted) return;
+    UiSnack.showSuccess(context.strings.appReports.draftSavedSnack);
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _discardDraft() async {
+    try {
+      await _form.discardDraft();
+    } catch (_) {
+      // נשארה טיוטה בדיסק — היא תיפתח שוב, ואין כאן נזק.
+    }
+    if (mounted) Navigator.of(context).pop();
   }
 
   @override
@@ -138,6 +175,16 @@ class _AppReportDialogState extends State<AppReportDialog> {
                         color: cs.onSurfaceVariant,
                       ),
                     ),
+                    if (_hadDraft) ...[
+                      const SizedBox(height: AppTokens.spaceSM),
+                      Text(
+                        t.draftRestoredNote,
+                        key: const ValueKey('app-report-draft-note'),
+                        style: AppTextStyles.meta.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: AppTokens.spaceMD),
                     _buildForm(context),
                   ],
@@ -306,11 +353,24 @@ class _AppReportDialogState extends State<AppReportDialog> {
   List<Widget> _buildActions(BuildContext context) {
     final t = context.strings.appReports;
     final isSending = _form.isSending;
+    final drafts = _form.supportsDraft;
     return [
+      if (_hadDraft)
+        ActionButton.ghost(
+          key: const ValueKey('app-report-discard-draft'),
+          text: t.discardDraftButton,
+          onPressed: isSending ? null : _discardDraft,
+        ),
       ActionButton.ghost(
         text: context.strings.common.cancel,
         onPressed: isSending ? null : () => Navigator.of(context).pop(),
       ),
+      if (drafts)
+        ActionButton.neutral(
+          key: const ValueKey('app-report-save-draft'),
+          text: t.saveDraftButton,
+          onPressed: _form.collecting || isSending ? null : _saveDraft,
+        ),
       ActionButton.recommended(
         key: const ValueKey('app-report-send'),
         text: t.sendButton,

@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../app_report/app_report_draft_store.dart';
 import '../../controllers/app_reports_controller.dart';
 import '../../services/app_logger.dart';
 
@@ -93,6 +96,44 @@ class AppReportForm extends ChangeNotifier {
     _notify();
   }
 
+  /// רק לדיווח הידני: לדיווח על קריסה יש חתימה ומזהה משלו.
+  bool get supportsDraft =>
+      trigger == AppReportTrigger.manual && reports.drafts != null;
+
+  /// ממלא את הטופס מטיוטה שנשמרה. מחזיר `true` כשהייתה כזו.
+  Future<bool> restoreDraft() async {
+    if (!supportsDraft) return false;
+    final draft = await reports.drafts!.load();
+    if (draft == null || _disposed || isSending) return false;
+    type = draft.type ?? type;
+    title = draft.title;
+    description = draft.description;
+    steps = draft.steps;
+    includeDiagnostics = draft.includeDiagnostics;
+    includeErrorLog = draft.includeErrorLog;
+    images = List.unmodifiable(draft.images);
+    _notify();
+    return true;
+  }
+
+  AppReportDraft get draft => AppReportDraft(
+        type: type,
+        title: title,
+        description: description,
+        steps: steps,
+        includeDiagnostics: includeDiagnostics,
+        includeErrorLog: includeErrorLog,
+        images: images,
+      );
+
+  Future<void> saveDraft() async {
+    if (supportsDraft) await reports.drafts!.save(draft);
+  }
+
+  Future<void> discardDraft() async {
+    if (supportsDraft) await reports.drafts!.discard();
+  }
+
   /// בודק, שומר את המייל ושולח. מחזיר את השדה הלא תקין, או `null`.
   Future<String?> submit() async {
     if (collecting || isSending || isFinished) return null;
@@ -131,6 +172,11 @@ class AppReportForm extends ChangeNotifier {
       return null;
     }
     submission = AppReportSubmission.finished;
+    try {
+      await discardDraft();
+    } on FileSystemException catch (error) {
+      AppLogger.maybeInstance?.warn('מחיקת טיוטת הדיווח נכשלה: $error');
+    }
     _notify();
     return null;
   }

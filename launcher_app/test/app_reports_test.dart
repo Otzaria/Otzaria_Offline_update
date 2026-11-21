@@ -9,6 +9,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:launcher_app/src/app_report/app_report_draft_store.dart';
 import 'package:launcher_app/src/app_report/launcher_crash_session.dart';
 import 'package:launcher_app/src/app_report/launcher_report_collector.dart';
 import 'package:launcher_app/src/controllers/app_reports_controller.dart';
@@ -176,16 +177,35 @@ class _FakeImages extends AppReportImageSource {
       ]);
 }
 
+/// טיוטה בזיכרון — בלי קבצים, כדי שהדיאלוג ייבדק בלי `runAsync`.
+class _MemoryDrafts extends AppReportDraftStore {
+  _MemoryDrafts([this.draft]) : super('memory');
+
+  AppReportDraft? draft;
+
+  @override
+  Future<AppReportDraft?> load() async => draft;
+
+  @override
+  Future<void> save(AppReportDraft value) async =>
+      draft = value.isEmpty ? null : value;
+
+  @override
+  Future<void> discard() async => draft = null;
+}
+
 AppReportsController _controller(
   _MemoryService service, {
   _MemorySettings? settings,
   String logsDirectory = '',
+  AppReportDraftStore? drafts,
 }) =>
     AppReportsController(
       service: service,
       collector: _FakeCollector(),
       settings: settings ?? _MemorySettings(),
       logsDirectory: logsDirectory,
+      drafts: drafts,
       redactor: AppReportRedactor(environment: const {}),
       appVersion: '0.25',
       host: 'PC1',
@@ -273,6 +293,60 @@ void main() {
   });
 
   group('AppReportDialog', () {
+    testWidgets('#290: טיוטה נפתחת בשדות, ו"שמירת טיוטה" שומרת וסוגרת',
+        (tester) async {
+      final drafts = _MemoryDrafts(
+        const AppReportDraft(
+          type: AppReportType.bug,
+          title: 'כותרת שמורה',
+          description: 'תיאור שמור',
+        ),
+      );
+      await _open(
+        tester,
+        (_) => AppReportDialog(
+          reports: _controller(_MemoryService(), drafts: drafts),
+        ),
+      );
+
+      expect(
+          find.byKey(const ValueKey('app-report-draft-note')), findsOneWidget);
+      expect(find.text('כותרת שמורה'), findsOneWidget);
+      expect(find.text('תיאור שמור'), findsOneWidget);
+      expect(find.byKey(const ValueKey('app-report-discard-draft')),
+          findsOneWidget);
+      expect(
+        find.text(AppL10n.stringsFor(AppLanguage.hebrew).common.cancel),
+        findsOneWidget,
+      );
+
+      await tester.enterText(
+          find.byKey(const ValueKey('app-report-title')), 'כותרת חדשה');
+      await tester.tap(find.byKey(const ValueKey('app-report-save-draft')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AppReportDialog), findsNothing);
+      expect(drafts.draft?.title, 'כותרת חדשה');
+      expect(drafts.draft?.description, 'תיאור שמור');
+      await _drainSnack(tester);
+    });
+
+    testWidgets('#290: "מחיקת הטיוטה" מוחקת וסוגרת', (tester) async {
+      final drafts = _MemoryDrafts(const AppReportDraft(title: 'כותרת שמורה'));
+      await _open(
+        tester,
+        (_) => AppReportDialog(
+          reports: _controller(_MemoryService(), drafts: drafts),
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('app-report-discard-draft')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AppReportDialog), findsNothing);
+      expect(drafts.draft, isNull);
+    });
+
     testWidgets('ללא סוג דיווח אין שליחה גם כשכל השדות מלאים', (tester) async {
       final service = _MemoryService();
       await _open(
@@ -901,6 +975,88 @@ void main() {
       expect(find.byType(CrashPromptDialog), findsOneWidget);
       expect(find.text('הקלדתי'), findsOneWidget);
       await _drainSnack(tester);
+    });
+  });
+
+  group('#290: טיוטת הדיווח', () {
+    late Directory dir;
+    late AppReportDraftStore drafts;
+
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('report-draft');
+      drafts = AppReportDraftStore.inState(dir.path);
+    });
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    AppReportForm newForm({
+      AppReportTrigger trigger = AppReportTrigger.manual,
+    }) =>
+        AppReportForm(
+          reports: _controller(_MemoryService(), drafts: drafts),
+          trigger: trigger,
+        );
+
+    test('טיוטה שנשמרה נפתחת בטופס הבא, כולל תמונות', () async {
+      final first = newForm()
+        ..update(
+          type: AppReportType.suggestion,
+          title: 'כותרת',
+          description: 'תיאור',
+          steps: 'שלבים',
+          includeErrorLog: false,
+          images: [
+            AppReportImage(
+              bytes: Uint8List.fromList(const [1, 2, 3]),
+              fileName: 'shot.png',
+              mimeType: 'image/png',
+            ),
+          ],
+        );
+      await first.saveDraft();
+
+      final second = newForm();
+      expect(await second.restoreDraft(), isTrue);
+      expect(second.type, AppReportType.suggestion);
+      expect(second.title, 'כותרת');
+      expect(second.description, 'תיאור');
+      expect(second.steps, 'שלבים');
+      expect(second.includeErrorLog, isFalse);
+      expect(second.images.single.bytes, [1, 2, 3]);
+    });
+
+    test('שליחה שהצליחה מוחקת את הטיוטה', () async {
+      final form = newForm()
+        ..update(
+          type: AppReportType.bug,
+          title: 'כותרת',
+          description: 'תיאור',
+          email: 'me@x.com',
+        );
+      await form.saveDraft();
+      await form.loadAttachments();
+
+      expect(await form.submit(), isNull);
+
+      expect(form.isFinished, isTrue);
+      expect(await drafts.load(), isNull);
+    });
+
+    test('טיוטה ריקה אינה נשמרת, ודיווח קריסה אינו נוגע בטיוטה', () async {
+      await newForm().saveDraft();
+      expect(File(drafts.path).existsSync(), isFalse);
+
+      final crash = newForm(trigger: AppReportTrigger.crashPrompt)
+        ..update(title: 'קריסה');
+      expect(crash.supportsDraft, isFalse);
+      await crash.saveDraft();
+      expect(File(drafts.path).existsSync(), isFalse);
+    });
+
+    test('קובץ טיוטה פגום הוא "אין טיוטה"', () async {
+      File(drafts.path)
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('{not json');
+      expect(await newForm().restoreDraft(), isFalse);
     });
   });
 

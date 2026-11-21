@@ -2604,6 +2604,13 @@ abstract class AppReportsStrings {
   String get emailInvalid;
   String get sendButton;
 
+  /// טיוטה של הדיווח הידני, כמו בטופס של אוצריא: נשמרת במחשב ונפתחת שוב.
+  String get saveDraftButton;
+  String get discardDraftButton;
+  String get draftSavedSnack;
+  String get draftSaveFailedSnack;
+  String get draftRestoredNote;
+
   // ── תמונות ──
   String get imagesPrompt;
   String get imagesPromptWithPaste;
