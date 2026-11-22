@@ -2609,6 +2609,8 @@ abstract class AppReportsStrings {
   String get discardDraftButton;
   String get draftSavedSnack;
   String get draftSaveFailedSnack;
+  String get draftDiscardFailedSnack;
+  String draftCleanupFailedSnack(bool sent);
   String get draftRestoredNote;
 
   // ── תמונות ──

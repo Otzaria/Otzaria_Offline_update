@@ -53,7 +53,7 @@ class _AppReportPreviewSectionState extends State<AppReportPreviewSection> {
     final theme = Theme.of(context);
     final t = context.strings.appReports;
     final form = widget.form;
-    final enabled = !form.isSending;
+    final enabled = form.canEdit;
     final diagnostics = form.diagnostics;
     final errorLog = form.errorLog;
     final hasLog = errorLog != null && errorLog.isNotEmpty;

@@ -4754,6 +4754,12 @@ class _AppReports extends AppReportsStrings {
   @override
   String get draftSaveFailedSnack => 'שמירת הטיוטה נכשלה.';
   @override
+  String get draftDiscardFailedSnack => 'מחיקת הטיוטה נכשלה.';
+  @override
+  String draftCleanupFailedSnack(bool sent) => sent
+      ? 'הדיווח נשלח, אך מחיקת הטיוטה נכשלה.'
+      : 'הדיווח נכנס לתור, אך מחיקת הטיוטה נכשלה.';
+  @override
   String get draftRestoredNote =>
       'נפתחה הטיוטה ששמרת. אפשר לערוך אותה לפני השליחה.';
 

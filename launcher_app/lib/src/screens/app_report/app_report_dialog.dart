@@ -65,14 +65,20 @@ class _AppReportDialogState extends State<AppReportDialog> {
   final _steps = TextEditingController();
   late final _email = TextEditingController(text: _form.email);
 
-  /// הטופס נפתח מטיוטה ששמרה — אז יש מה למחוק.
   bool _hadDraft = false;
+  ModalRoute<Object?>? _route;
 
   @override
   void initState() {
     super.initState();
     _form.addListener(_onFormChanged);
     unawaited(_load());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
   }
 
   // The draft is restored before the fields appear, so no typing is lost.
@@ -82,31 +88,46 @@ class _AppReportDialogState extends State<AppReportDialog> {
       _title.text = _form.title;
       _description.text = _form.description;
       _steps.text = _form.steps;
+      _email.text = _form.email;
     }
-    await _form.loadAttachments();
+    if (mounted) await _form.loadAttachments();
   }
 
-  Future<void> _saveDraft() async {
+  ModalRoute<Object?>? get _activeRoute {
+    final route = _route;
+    return mounted && route?.isActive == true ? route : null;
+  }
+
+  void _close([AppReportDeliveryResult? result]) {
+    if (_form.isBusy) return;
+    final route = _activeRoute;
+    final navigator = route?.navigator;
+    if (route == null || navigator == null) return;
+    if (route.isCurrent) {
+      navigator.pop(result);
+    } else {
+      navigator.removeRoute(route, result);
+    }
+  }
+
+  Future<void> _editDraft({required bool save}) async {
+    if (!_form.canEdit || _form.collecting) return;
+    final t = context.strings.appReports;
+    final failure = save ? t.draftSaveFailedSnack : t.draftDiscardFailedSnack;
     try {
-      await _form.saveDraft();
-    } catch (_) {
-      if (mounted) {
-        UiSnack.showError(context.strings.appReports.draftSaveFailedSnack);
+      final completed =
+          save ? await _form.saveDraft() : await _form.discardDraft();
+      if (_activeRoute == null) return;
+      if (!completed) {
+        UiSnack.showError(failure);
+        return;
       }
+    } on Exception {
+      if (_activeRoute != null) UiSnack.showError(failure);
       return;
     }
-    if (!mounted) return;
-    UiSnack.showSuccess(context.strings.appReports.draftSavedSnack);
-    Navigator.of(context).pop();
-  }
-
-  Future<void> _discardDraft() async {
-    try {
-      await _form.discardDraft();
-    } catch (_) {
-      // נשארה טיוטה בדיסק — היא תיפתח שוב, ואין כאן נזק.
-    }
-    if (mounted) Navigator.of(context).pop();
+    if (save) UiSnack.showSuccess(t.draftSavedSnack);
+    _close();
   }
 
   @override
@@ -125,9 +146,11 @@ class _AppReportDialogState extends State<AppReportDialog> {
   }
 
   Future<void> _submit() async {
+    if (!_form.canEdit || _form.collecting) return;
+    final t = context.strings.appReports;
     try {
       final invalid = await _form.submit();
-      if (!mounted) return;
+      if (_activeRoute == null) return;
       if (invalid != null) {
         UiSnack.showError(
           appReportInvalidFieldMessage(
@@ -138,7 +161,9 @@ class _AppReportDialogState extends State<AppReportDialog> {
         return;
       }
     } catch (_) {
-      UiSnack.showError(context.strings.appReports.sendFailedSnack);
+      if (_activeRoute != null) {
+        UiSnack.showError(t.sendFailedSnack);
+      }
       return;
     }
     final result = _form.result;
@@ -147,51 +172,60 @@ class _AppReportDialogState extends State<AppReportDialog> {
       showAppReportResultSnack(result);
       return;
     }
-    if (!_form.isFinished || result == null || !mounted) return;
-    showAppReportResultSnack(result);
-    Navigator.of(context).pop(result);
+    if (!_form.isFinished || result == null) return;
+    if (_form.draftCleanupFailed) {
+      UiSnack.showError(
+        t.draftCleanupFailedSnack(result.isSent),
+      );
+    } else {
+      showAppReportResultSnack(result);
+    }
+    _close(result);
   }
 
   @override
   Widget build(BuildContext context) {
     final t = context.strings.appReports;
     final cs = Theme.of(context).colorScheme;
-    return AppDialog.custom(
-      title: t.dialogTitle,
-      width: AppTokens.dialogWideWidth,
-      customContent: Flexible(
-        child: _form.collecting
-            ? const Padding(
-                padding: EdgeInsets.symmetric(vertical: AppTokens.spaceXL),
-                child: AppProgressBar(thin: true),
-              )
-            : SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      t.dialogSubtitle,
-                      style: AppTextStyles.dialogBody.copyWith(
-                        color: cs.onSurfaceVariant,
-                      ),
-                    ),
-                    if (_hadDraft) ...[
-                      const SizedBox(height: AppTokens.spaceSM),
+    return PopScope(
+      canPop: !_form.isBusy,
+      child: AppDialog.custom(
+        title: t.dialogTitle,
+        width: AppTokens.dialogWideWidth,
+        customContent: Flexible(
+          child: _form.collecting
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(vertical: AppTokens.spaceXL),
+                  child: AppProgressBar(thin: true),
+                )
+              : SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                       Text(
-                        t.draftRestoredNote,
-                        key: const ValueKey('app-report-draft-note'),
-                        style: AppTextStyles.meta.copyWith(
+                        t.dialogSubtitle,
+                        style: AppTextStyles.dialogBody.copyWith(
                           color: cs.onSurfaceVariant,
                         ),
                       ),
+                      if (_hadDraft) ...[
+                        const SizedBox(height: AppTokens.spaceSM),
+                        Text(
+                          t.draftRestoredNote,
+                          key: const ValueKey('app-report-draft-note'),
+                          style: AppTextStyles.meta.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: AppTokens.spaceMD),
+                      _buildForm(context),
                     ],
-                    const SizedBox(height: AppTokens.spaceMD),
-                    _buildForm(context),
-                  ],
+                  ),
                 ),
-              ),
+        ),
+        actions: _buildActions(context),
       ),
-      actions: _buildActions(context),
     );
   }
 
@@ -241,7 +275,7 @@ class _AppReportDialogState extends State<AppReportDialog> {
   Widget _buildForm(BuildContext context) {
     final t = context.strings.appReports;
     final form = _form;
-    final enabled = !form.isSending;
+    final enabled = form.canEdit;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -352,31 +386,32 @@ class _AppReportDialogState extends State<AppReportDialog> {
 
   List<Widget> _buildActions(BuildContext context) {
     final t = context.strings.appReports;
-    final isSending = _form.isSending;
-    final drafts = _form.supportsDraft;
+    final actionsEnabled = _form.canEdit && !_form.collecting;
     return [
       if (_hadDraft)
         ActionButton.ghost(
           key: const ValueKey('app-report-discard-draft'),
           text: t.discardDraftButton,
-          onPressed: isSending ? null : _discardDraft,
+          onPressed: actionsEnabled ? () => _editDraft(save: false) : null,
         ),
       ActionButton.ghost(
         text: context.strings.common.cancel,
-        onPressed: isSending ? null : () => Navigator.of(context).pop(),
+        onPressed: _form.isBusy ? null : _close,
       ),
-      if (drafts)
+      if (_form.supportsDraft)
         ActionButton.neutral(
           key: const ValueKey('app-report-save-draft'),
           text: t.saveDraftButton,
-          onPressed: _form.collecting || isSending ? null : _saveDraft,
+          onPressed: actionsEnabled && _form.canSaveDraft
+              ? () => _editDraft(save: true)
+              : null,
         ),
       ActionButton.recommended(
         key: const ValueKey('app-report-send'),
         text: t.sendButton,
         icon: FluentIcons.send_24_regular,
-        isLoading: isSending,
-        onPressed: _form.collecting || isSending ? null : _submit,
+        isLoading: _form.isSending,
+        onPressed: actionsEnabled ? _submit : null,
       ),
     ];
   }

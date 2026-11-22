@@ -150,6 +150,16 @@ class _MemorySettings extends SettingsController {
   }
 }
 
+class _FailingSettings extends _MemorySettings {
+  bool fail = true;
+
+  @override
+  Future<void> update(AppSettings next) async {
+    if (fail) throw const FileSystemException('permission denied');
+    await super.update(next);
+  }
+}
+
 class _FakeCollector implements AppReportAttachmentsCollector {
   @override
   Future<AppReportAttachments> collect() async => const AppReportAttachments(
@@ -187,11 +197,37 @@ class _MemoryDrafts extends AppReportDraftStore {
   Future<AppReportDraft?> load() async => draft;
 
   @override
-  Future<void> save(AppReportDraft value) async =>
-      draft = value.isEmpty ? null : value;
+  Future<String> save(AppReportDraft value) async {
+    draft = value;
+    return value.revision;
+  }
 
   @override
-  Future<void> discard() async => draft = null;
+  Future<bool> discard(String revision) async {
+    draft = null;
+    return true;
+  }
+}
+
+class _DelayedDrafts extends _MemoryDrafts {
+  _DelayedDrafts(super.draft);
+
+  final saving = Completer<void>();
+
+  @override
+  Future<String> save(AppReportDraft value) async {
+    await saving.future;
+    return super.save(value);
+  }
+}
+
+class _UndeletableDrafts extends _MemoryDrafts {
+  _UndeletableDrafts(super.draft);
+
+  @override
+  Future<bool> discard(String revision) async {
+    throw const FileSystemException('permission denied');
+  }
 }
 
 AppReportsController _controller(
@@ -293,6 +329,150 @@ void main() {
   });
 
   group('AppReportDialog', () {
+    testWidgets('#290: אי אפשר לשלוח או למחוק בזמן שמירה', (tester) async {
+      final drafts = _DelayedDrafts(const AppReportDraft(
+        type: AppReportType.bug,
+        title: 'כותרת שמורה',
+        description: 'תיאור שמור',
+      ));
+      final service = _MemoryService();
+      await _open(
+        tester,
+        (_) => AppReportDialog(reports: _controller(service, drafts: drafts)),
+      );
+      await tester.enterText(
+          find.byKey(const ValueKey('app-report-email')), 'me@example.com');
+      await tester.enterText(
+          find.byKey(const ValueKey('app-report-title')), 'כותרת חדשה');
+      await tester.tap(find.byKey(const ValueKey('app-report-save-draft')));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('app-report-send')));
+      await tester.tap(find.byKey(const ValueKey('app-report-discard-draft')));
+      await navigatorKey.currentState!.maybePop();
+      await tester.pumpAndSettle();
+      expect(find.byType(AppReportDialog), findsOneWidget);
+
+      drafts.saving.complete();
+      await tester.pumpAndSettle();
+      await _drainSnack(tester);
+
+      expect(service.sentReports, isEmpty);
+      expect(drafts.draft?.title, 'כותרת חדשה');
+    });
+
+    testWidgets('#290: שמירה מאוחרת לא סוגרת מסך אחר', (tester) async {
+      final drafts = _DelayedDrafts(const AppReportDraft(title: 'כותרת שמורה'));
+      await _open(
+        tester,
+        (_) => AppReportDialog(
+          reports: _controller(_MemoryService(), drafts: drafts),
+        ),
+      );
+      await tester.tap(find.byKey(const ValueKey('app-report-save-draft')));
+      await tester.pump();
+      // סגירה חיצונית אינה מחכה לאנימציית היציאה של הדיאלוג.
+      navigatorKey.currentState!.pop();
+      unawaited(navigatorKey.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('המסך הבא')),
+        ),
+      ));
+      await tester.pump();
+      drafts.saving.complete();
+      await tester.pumpAndSettle();
+      await _drainSnack(tester);
+
+      expect(find.text('המסך הבא'), findsOneWidget);
+    });
+
+    testWidgets('#290: כשל במחיקה משאיר את הטיוטה ואת הטופס', (tester) async {
+      final drafts =
+          _UndeletableDrafts(const AppReportDraft(title: 'כותרת שמורה'));
+      await _open(
+        tester,
+        (_) => AppReportDialog(
+          reports: _controller(_MemoryService(), drafts: drafts),
+        ),
+      );
+      await tester.tap(find.byKey(const ValueKey('app-report-discard-draft')));
+      await tester.pumpAndSettle();
+
+      expect(find.text(t.draftDiscardFailedSnack), findsOneWidget);
+      expect(drafts.draft, isNotNull);
+      expect(find.byType(AppReportDialog), findsOneWidget);
+      await _drainSnack(tester);
+    });
+
+    testWidgets('#290: מייל שהוקלד נשמר ומשוחזר בשדה', (tester) async {
+      final drafts = _MemoryDrafts(const AppReportDraft(title: 'כותרת שמורה'));
+      final reports = _controller(_MemoryService(), drafts: drafts);
+      await _open(tester, (_) => AppReportDialog(reports: reports));
+      await tester.enterText(
+          find.byKey(const ValueKey('app-report-email')), 'new@example.com');
+      await tester.tap(find.byKey(const ValueKey('app-report-save-draft')));
+      await tester.pumpAndSettle();
+      await _drainSnack(tester);
+
+      await tester.tap(find.byKey(const ValueKey('probe')));
+      await tester.pumpAndSettle();
+      expect(find.text('new@example.com'), findsOneWidget);
+    });
+
+    testWidgets('#290: דיווח שנשלח מצליח גם כשניקוי הטיוטה נכשל',
+        (tester) async {
+      final drafts = _UndeletableDrafts(const AppReportDraft(
+        type: AppReportType.bug,
+        title: 'כותרת שמורה',
+        description: 'תיאור שמור',
+        email: 'reporter@example.com',
+      ));
+      final service = _MemoryService();
+      await _open(
+          tester,
+          (_) =>
+              AppReportDialog(reports: _controller(service, drafts: drafts)));
+      await tester.tap(find.byKey(const ValueKey('app-report-send')));
+      await tester.pumpAndSettle();
+
+      expect(service.sentReports, hasLength(1));
+      expect(find.byType(AppReportDialog), findsNothing);
+      expect(find.text(t.draftCleanupFailedSnack(true)), findsOneWidget);
+      expect(drafts.draft, isNotNull);
+      await _drainSnack(tester);
+    });
+
+    testWidgets('#290: כשל בשמירת כתובת לא נועל את הטופס', (tester) async {
+      final settings = _FailingSettings();
+      final drafts = _MemoryDrafts(const AppReportDraft(
+        type: AppReportType.bug,
+        title: 'כותרת שמורה',
+        description: 'תיאור שמור',
+        email: 'reporter@example.com',
+      ));
+      final service = _MemoryService();
+      await _open(
+        tester,
+        (_) => AppReportDialog(
+          reports: _controller(service, settings: settings, drafts: drafts),
+        ),
+      );
+      final send = find.byKey(const ValueKey('app-report-send'));
+      await tester.tap(send);
+      await tester.pumpAndSettle();
+
+      expect(find.text(t.sendFailedSnack), findsOneWidget);
+      expect(drafts.draft, isNotNull);
+      expect(service.sentReports, isEmpty);
+      await _drainSnack(tester);
+
+      settings.fail = false;
+      await tester.tap(send);
+      await tester.pumpAndSettle();
+      expect(service.sentReports, hasLength(1));
+      expect(drafts.draft, isNull);
+      await _drainSnack(tester);
+    });
+
     testWidgets('#290: טיוטה נפתחת בשדות, ו"שמירת טיוטה" שומרת וסוגרת',
         (tester) async {
       final drafts = _MemoryDrafts(
@@ -990,9 +1170,12 @@ void main() {
 
     AppReportForm newForm({
       AppReportTrigger trigger = AppReportTrigger.manual,
+      AppReportDraftStore? store,
+      _MemorySettings? settings,
     }) =>
         AppReportForm(
-          reports: _controller(_MemoryService(), drafts: drafts),
+          reports: _controller(_MemoryService(),
+              drafts: store ?? drafts, settings: settings),
           trigger: trigger,
         );
 
@@ -1003,6 +1186,7 @@ void main() {
           title: 'כותרת',
           description: 'תיאור',
           steps: 'שלבים',
+          email: 'new@example.com',
           includeErrorLog: false,
           images: [
             AppReportImage(
@@ -1020,6 +1204,7 @@ void main() {
       expect(second.title, 'כותרת');
       expect(second.description, 'תיאור');
       expect(second.steps, 'שלבים');
+      expect(second.email, 'new@example.com');
       expect(second.includeErrorLog, isFalse);
       expect(second.images.single.bytes, [1, 2, 3]);
     });
@@ -1050,6 +1235,46 @@ void main() {
       expect(crash.supportsDraft, isFalse);
       await crash.saveDraft();
       expect(File(drafts.path).existsSync(), isFalse);
+    });
+
+    test('טופס ישן לא מוחק טיוטה שנשמרה במופע אחר', () async {
+      final first = newForm()
+        ..update(
+          type: AppReportType.bug,
+          title: 'כותרת ישנה',
+          description: 'תיאור',
+          email: 'reporter@example.com',
+        );
+      await first.saveDraft();
+
+      final otherStore = AppReportDraftStore.inState(dir.path);
+      final newer = newForm(store: otherStore)..update(title: 'כותרת חדשה');
+      await newer.saveDraft();
+
+      expect(await first.discardDraft(), isFalse);
+      await first.loadAttachments();
+      await first.submit();
+
+      expect(first.isFinished, isTrue);
+      expect((await drafts.load())?.title, 'כותרת חדשה');
+    });
+
+    test('טיוטה בלי מייל משתמשת בכתובת השמורה וניתנת למחיקה', () async {
+      File(drafts.path)
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(jsonEncode(
+          const AppReportDraft(title: 'ישנה').toJson(),
+        ));
+      final form = newForm(
+        settings: _MemorySettings(
+          const AppSettings(reportSenderEmails: {'PC1': 'saved@example.com'}),
+        ),
+      );
+
+      expect(await form.restoreDraft(), isTrue);
+      expect(form.email, 'saved@example.com');
+      expect(await form.discardDraft(), isTrue);
+      expect(await drafts.load(), isNull);
     });
 
     test('קובץ טיוטה פגום הוא "אין טיוטה"', () async {

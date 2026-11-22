@@ -5021,6 +5021,12 @@ class _AppReports extends AppReportsStrings {
   @override
   String get draftSaveFailedSnack => 'Saving the draft failed.';
   @override
+  String get draftDiscardFailedSnack => 'Deleting the draft failed.';
+  @override
+  String draftCleanupFailedSnack(bool sent) => sent
+      ? 'The report was sent, but deleting the draft failed.'
+      : 'The report was queued, but deleting the draft failed.';
+  @override
   String get draftRestoredNote =>
       'Your saved draft was opened. You can edit it before sending.';
 
