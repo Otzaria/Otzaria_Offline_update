@@ -108,6 +108,26 @@ void main() {
       expect((await client.fetchLatest(withPattern))!.tagName, 'v2.0');
     });
 
+    test(
+        '#310: a repo that moved to one installer is followed past the x64 era',
+        () async {
+      final client = clientReturning([
+        release('v10.7.0', assets: ['KleiKodeshSetup-v10.7.0.exe']),
+        release('v9.1.4', assets: [
+          'KleiKodeshSetup-v9.1.4-x64.exe',
+          'KleiKodeshSetup-v9.1.4.exe',
+        ]),
+      ]);
+      final klei = GithubSource(
+        owner: 'KleiKodesh',
+        repo: 'KleiKodeshProject',
+        assetPattern: GithubAssetPattern.fromAssetName(
+          'KleiKodeshSetup-v9.0.1-x64.exe',
+        ),
+      );
+      expect((await client.fetchLatest(klei))!.tagName, 'v10.7.0');
+    });
+
     test('with no matching asset anywhere the newest release is reported',
         () async {
       final client = clientReturning([
@@ -160,6 +180,87 @@ void main() {
     test('אין התאמה — null, וההודעה למעלה תסביר', () {
       final pattern = GithubAssetPattern.fromAssetName('Other-1.0.msi');
       expect(GithubAppClient.selectAsset(withAssets, pattern), isNull);
+    });
+  });
+
+  group('Klei Kodesh x64 installer migration', () {
+    final kleiX64 = GithubSource(
+      owner: 'KleiKodesh',
+      repo: 'KleiKodeshProject',
+      assetPattern: GithubAssetPattern.fromAssetName(
+        'KleiKodeshSetup-v9.0.1-x64.exe',
+      ),
+    );
+
+    test('accepts the matching installer starting at v10.0.0', () {
+      final firstRelease = GithubRelease.fromJson(release(
+        'v10.0.0',
+        assets: [
+          'KitveiHakodeshPortable-v10.0.0.zip',
+          'KleiKodeshSetup-v10.0.0.exe',
+        ],
+      ));
+
+      expect(
+        GithubAppClient.selectSourceAsset(firstRelease, kleiX64)?.name,
+        'KleiKodeshSetup-v10.0.0.exe',
+      );
+    });
+
+    test('preserves the exact x64 match when both installers exist', () {
+      final withBoth = GithubRelease.fromJson(release(
+        'v10.7.0',
+        assets: [
+          'KleiKodeshSetup-v10.7.0.exe',
+          'KleiKodeshSetup-v10.7.0-x64.exe',
+        ],
+      ));
+
+      expect(
+        GithubAppClient.selectSourceAsset(withBoth, kleiX64)?.name,
+        'KleiKodeshSetup-v10.7.0-x64.exe',
+      );
+    });
+
+    test('accepts only the exact installer for the stable release tag', () {
+      final rejected = [
+        release('v9.1.4', assets: ['KleiKodeshSetup-v9.1.4.exe']),
+        release('v10.7.0',
+            prerelease: true, assets: ['KleiKodeshSetup-v10.7.0.exe']),
+        release('v10.7.0-rc.1', assets: ['KleiKodeshSetup-v10.7.0-rc.1.exe']),
+        release('v10.7.0', assets: [
+          'KleiKodeshSetup-v10.6.0.exe',
+          'KleiKodeshSetup-v10.7.0.exe.sha256',
+          'KleiKodeshSetup-v10.7.0-x86.exe',
+        ]),
+      ];
+
+      for (final json in rejected) {
+        final candidate = GithubRelease.fromJson(json);
+        expect(GithubAppClient.selectSourceAsset(candidate, kleiX64), isNull,
+            reason: candidate.tagName);
+      }
+    });
+
+    test('keeps the original pattern for a fork or an x86 choice', () {
+      final single = GithubRelease.fromJson(
+        release('v10.7.0', assets: ['KleiKodeshSetup-v10.7.0.exe']),
+      );
+      final fork = GithubSource(
+        owner: 'someone',
+        repo: kleiX64.repo,
+        assetPattern: kleiX64.assetPattern,
+      );
+      final kleiX86 = GithubSource(
+        owner: kleiX64.owner,
+        repo: kleiX64.repo,
+        assetPattern: GithubAssetPattern.fromAssetName(
+          'KleiKodeshSetup-v9.0.1-x86.exe',
+        ),
+      );
+
+      expect(GithubAppClient.selectSourceAsset(single, fork), isNull);
+      expect(GithubAppClient.selectSourceAsset(single, kleiX86), isNull);
     });
   });
 

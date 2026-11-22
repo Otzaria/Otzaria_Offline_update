@@ -92,8 +92,9 @@ void main() {
         };
 
     Future<CustomAppsManager> managerServing(
-      List<Map<String, dynamic>> releases,
-    ) async {
+      List<Map<String, dynamic>> releases, {
+      GithubSource? source,
+    }) async {
       final m = CustomAppsManager(
         resolveMirrorDir: () async => root,
         readVersion: (_) => '1',
@@ -116,11 +117,12 @@ void main() {
           id: id,
           name: 'gh',
           sourceKind: AppSourceKind.github,
-          github: GithubSource(
-            owner: 'o',
-            repo: 'r',
-            assetPattern: GithubAssetPattern.fromAssetName('App-1.4.exe'),
-          ),
+          github: source ??
+              GithubSource(
+                owner: 'o',
+                repo: 'r',
+                assetPattern: GithubAssetPattern.fromAssetName('App-1.4.exe'),
+              ),
         ),
       );
       appDir = p.join(root, 'apps', id);
@@ -160,6 +162,84 @@ void main() {
       final stored = await m.downloadFromGithub(id);
       expect(stored.fileName, 'App-1.5.exe');
       expect(stored.version, '1.5');
+    });
+
+    test('an x64 pattern downloads the single installer of a newer release',
+        () async {
+      final m = await managerServing(
+        [
+          releaseJson('v10.7.0', [
+            'KitveiHakodeshPortable-v10.7.0.zip',
+            'KleiKodeshSetup-v10.7.0.exe',
+          ]),
+          releaseJson('v9.1.4', [
+            'KleiKodeshSetup-v9.1.4.exe',
+            'KleiKodeshSetup-v9.1.4-x86.exe',
+            'KleiKodeshSetup-v9.1.4-x64.exe',
+          ]),
+        ],
+        source: GithubSource(
+          owner: 'KleiKodesh',
+          repo: 'KleiKodeshProject',
+          assetPattern: GithubAssetPattern.fromAssetName(
+            'KleiKodeshSetup-v9.0.1-x64.exe',
+          ),
+        ),
+      );
+
+      final descriptor = (await m.load(id))!.descriptor;
+      final release = await m.peekLatestOnline(descriptor);
+      expect(release?.tagName, 'v10.7.0');
+
+      final stored = await m.downloadFromGithub(
+        id,
+        release: release,
+        releaseSource: descriptor.github,
+      );
+      expect(stored.fileName, 'KleiKodeshSetup-v10.7.0.exe');
+      expect(stored.version, '10.7.0');
+    });
+
+    test('preserves the x64 download while only the x86 asset is published',
+        () async {
+      final older = releaseJson('v7.8.1', ['npp.7.8.1.Installer.x64.exe']);
+      final releases = [older];
+      final m = await managerServing(
+        releases,
+        source: GithubSource(
+          owner: 'notepad-plus-plus',
+          repo: 'notepad-plus-plus',
+          assetPattern: GithubAssetPattern.fromAssetName(
+            'npp.7.8.1.Installer.x64.exe',
+          ),
+        ),
+      );
+      final original = await m.downloadFromGithub(id);
+
+      releases.insert(0, releaseJson('v7.8.2', ['npp.7.8.2.Installer.exe']));
+      final selected = await m.downloadFromGithub(id);
+
+      expect(selected.fileName, original.fileName);
+      expect(File(p.join(appDir, original.fileName)).existsSync(), isTrue);
+    });
+
+    test('keeps a manually authored architecture constraint during download',
+        () async {
+      final m = await managerServing(
+        [
+          releaseJson('v10.7.0', ['Helper.exe']),
+          releaseJson('v9.1.4', ['KleiKodeshSetup-v9.1.4-x64.exe']),
+        ],
+        source: const GithubSource(
+          owner: 'KleiKodesh',
+          repo: 'KleiKodeshProject',
+          assetPattern: r'^App-.*-arm64\.msi$|.*-x64\.exe$',
+        ),
+      );
+
+      final stored = await m.downloadFromGithub(id);
+
+      expect(stored.fileName, 'KleiKodeshSetup-v9.1.4-x64.exe');
     });
 
     test('a backport published after a newer release does not win', () async {

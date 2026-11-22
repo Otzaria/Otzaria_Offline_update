@@ -38,7 +38,7 @@ class GithubAppClient {
     if (pattern.isEmpty) return _newest(releases);
     final usable = [
       for (final release in releases)
-        if (selectAsset(release, pattern) != null) release,
+        if (selectSourceAsset(release, source) != null) release,
     ];
     return _newest(usable) ?? _newest(releases);
   }
@@ -114,6 +114,32 @@ class GithubAppClient {
   static GithubAsset? selectAsset(GithubRelease release, String pattern) {
     for (final asset in release.assets) {
       if (GithubAssetPattern.matches(pattern, asset.name)) return asset;
+    }
+    return null;
+  }
+
+  static final _kleiKodeshX64Pattern =
+      GithubAssetPattern.fromAssetName('KleiKodeshSetup-v9.1.4-x64.exe');
+  static final _kleiKodeshMigrationTag = RegExp(r'^v[1-9]\d+\.\d+\.\d+$');
+
+  /// בוחר לפי התבנית שנשמרה, כולל המעבר הידוע של כלי קודש מגרסה 10.
+  static GithubAsset? selectSourceAsset(
+    GithubRelease release,
+    GithubSource source,
+  ) {
+    final exact = selectAsset(release, source.assetPattern);
+    if (exact != null) return exact;
+    if (source.assetPattern != _kleiKodeshX64Pattern ||
+        source.owner.toLowerCase() != 'kleikodesh' ||
+        source.repo.toLowerCase() != 'kleikodeshproject' ||
+        release.isPrerelease ||
+        !_kleiKodeshMigrationTag.hasMatch(release.tagName)) {
+      return null;
+    }
+
+    final name = 'KleiKodeshSetup-${release.tagName}.exe';
+    for (final asset in release.assets) {
+      if (asset.name == name) return asset;
     }
     return null;
   }
