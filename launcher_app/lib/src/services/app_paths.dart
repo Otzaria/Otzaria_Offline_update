@@ -1,7 +1,8 @@
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
-
+import 'package:otzaria_downloads/otzaria_downloads.dart'
+    show writeBytesAtomically;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:win32/win32.dart';
@@ -311,29 +312,17 @@ class AppPaths {
     }
   }
 
-  /// שמות קובצי ההעדפות שנוסעים עם הכונן — ראו [seedPreferences].
-  static const List<String> preferenceFileNames = [
-    'launcher_settings.json',
-    'faq_customization.json',
-  ];
-
-  /// מעתיק פעם אחת את **העדפות** המשתמש מהכונן לתיקיית הכתיבה שבמחשב, כדי
-  /// שכונן נעול שיצא מהבית עם שפה, ערכת נושא וערוץ נבחר יגיע איתם. קובצי
-  /// המצב (מה מותקן ואיפה) אינם מועתקים בכוונה: הם מתארים את המחשב שכתב
-  /// אותם, ולא את זה שקורא אותם עכשיו. best-effort — העדפה שלא הועתקה
-  /// פירושה ברירת מחדל, לא כשל הרצה.
+  /// הגדרות המחשב מועתקות מהכונן הנעול רק אם טרם נשמרו כאן.
   Future<void> seedPreferences() async {
     if (!readOnly) return;
-    for (final name in preferenceFileNames) {
-      try {
-        final target = File(p.join(stateDir, name));
-        if (await target.exists()) continue;
-        final source = File(p.join(dataDir, name));
-        if (!await source.exists()) continue;
-        await source.copy(target.path);
-      } on FileSystemException {
-        continue;
-      }
+    const name = 'launcher_settings.json';
+    final target = File(p.join(stateDir, name));
+    try {
+      if (await target.exists()) return;
+      final source = File(p.join(dataDir, name));
+      await writeBytesAtomically(target.path, await source.readAsBytes());
+    } on FileSystemException {
+      // כשל העתקה משאיר את ברירת המחדל.
     }
   }
 

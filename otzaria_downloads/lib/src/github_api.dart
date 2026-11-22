@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import 'network_errors.dart';
+import 'request_cancellation.dart';
 
 const String githubUserAgent = 'otzaria-launcher';
 
@@ -193,7 +194,9 @@ Future<http.Response> githubGet(
   required Duration timeout,
   Map<String, String> headers = githubApiHeaders,
   GithubRateLimitGate? gate,
+  void Function()? checkCancelled,
 }) async {
+  checkCancelled?.call();
   final limiter = gate ?? GithubRateLimitGate.shared;
   final api = uri.host == githubApiHost;
   if (api) {
@@ -202,7 +205,9 @@ Future<http.Response> githubGet(
   }
   final http.Response response;
   try {
-    response = await client.get(uri, headers: headers).timeout(timeout);
+    response = await (checkCancelled == null
+        ? client.get(uri, headers: headers).timeout(timeout)
+        : _getAbortable(client, uri, headers, timeout, checkCancelled));
   } on TlsException catch (e) {
     const verificationFailed = 'CERTIFICATE_VERIFY_FAILED';
     if (e is! CertificateException &&
@@ -224,14 +229,65 @@ Future<http.Response> githubGet(
   return response;
 }
 
+Future<http.Response> _getAbortable(
+  http.Client client,
+  Uri uri,
+  Map<String, String> headers,
+  Duration timeout,
+  void Function() checkCancelled,
+) async {
+  final cancellation = RequestCancellation(checkCancelled);
+  final abort = Completer<void>();
+  final request = http.AbortableRequest('GET', uri, abortTrigger: abort.future)
+    ..headers.addAll(headers);
+  try {
+    final response = await sendAbortableRequest(
+      client,
+      request,
+      abort,
+      cancellation: cancellation,
+    )
+        .then(
+          (response) => http.Response.fromStream(
+            http.StreamedResponse(
+              cancellation.bind(response.stream),
+              response.statusCode,
+              request: response.request,
+              headers: response.headers,
+              isRedirect: response.isRedirect,
+              persistentConnection: response.persistentConnection,
+              reasonPhrase: response.reasonPhrase,
+            ),
+          ),
+        )
+        .timeout(timeout);
+    cancellation.check();
+    return response;
+  } catch (_) {
+    cancellation.check();
+    rethrow;
+  } finally {
+    cancellation.dispose();
+    if (!abort.isCompleted) abort.complete();
+  }
+}
+
 Future<Object?> githubGetJson(
   http.Client client,
   Uri uri, {
   required Duration timeout,
   required Object Function(int statusCode) statusError,
   GithubRateLimitGate? gate,
+  void Function()? checkCancelled,
 }) async {
-  final response = await githubGet(client, uri, timeout: timeout, gate: gate);
+  final response = await githubGet(
+    client,
+    uri,
+    timeout: timeout,
+    gate: gate,
+    checkCancelled: checkCancelled,
+  );
+  checkCancelled?.call();
   if (response.statusCode != 200) throw statusError(response.statusCode);
   return decodeGithubJson(response);
 }

@@ -15,6 +15,26 @@ import '../services/serial_queue.dart';
 import 'dispose_guard.dart';
 import 'progress_notifier.dart';
 
+typedef CustomAppDownloadResult = ({
+  StoredInstaller? installer,
+  bool cancelled,
+});
+
+typedef CustomAppsBatchDownloadResult = ({
+  int checked,
+  int downloaded,
+  int failed,
+  int notChecked,
+  bool cancelled,
+});
+
+class _CustomAppDownload {
+  _CustomAppDownload({required this.all});
+
+  final bool all;
+  bool cancelRequested = false;
+}
+
 /// הגרסה המוטבעת בקובץ הרצה, או `null`. ציבורי כי הבונה משתמש בו כדי
 /// להציע גרסה מתוך קובץ ההתקנה עצמו — ב-Inno ובדומיו זו בדרך כלל הגרסה
 /// של התוכנה, וזה חוסך מהמשתמש להקליד אותה.
@@ -383,6 +403,18 @@ class CustomAppsController extends ChangeNotifier
   int? downloadReceived;
   int? downloadTotal;
 
+  _CustomAppDownload? _activeDownload;
+  bool get isDownloadActive =>
+      _activeDownload != null || downloadingId != null || isDownloadingAll;
+  bool get cancelRequested => _activeDownload?.cancelRequested ?? false;
+
+  void cancelDownload() {
+    final active = _activeDownload;
+    if (active == null || active.cancelRequested) return;
+    active.cancelRequested = true;
+    notifyListeners();
+  }
+
   /// חשוף לטופס — הוא צריך להביא את רשימת הקבצים של ה-release **לפני**
   /// שהתוכנה נרשמה בכלל.
   GithubAppClient get github => _manager.github;
@@ -484,12 +516,24 @@ class CustomAppsController extends ChangeNotifier
   }
 
   Future<void> checkOnline(AppDescriptor descriptor) async {
+    if (isCheckingAll || isDownloadingAll || isDisposed) return;
+    await _checkOnline(descriptor);
+  }
+
+  Future<void> _checkOnline(
+    AppDescriptor descriptor, {
+    bool Function()? isCancelled,
+  }) async {
     final source = descriptor.github;
     if (descriptor.sourceKind != AppSourceKind.github || source == null) return;
     if (!checkingIds.add(descriptor.id)) return;
     notifyListeners();
     try {
-      final release = await _manager.peekLatestOnline(descriptor);
+      final release = await _manager.peekLatestOnline(
+        descriptor,
+        isCancelled: isCancelled,
+      );
+      CustomAppDownloadCancelled.check(isCancelled);
       if (!_isCurrentSource(descriptor.id, source)) return;
       onlineUnavailable.remove(descriptor.id);
       if (release != null) {
@@ -499,6 +543,8 @@ class CustomAppsController extends ChangeNotifier
         // אין release: הגרסה מהבדיקה הקודמת כבר אינה מאומתת.
         _forgetOnline(descriptor.id);
       }
+    } on CustomAppDownloadCancelled {
+      rethrow;
     } catch (_) {
       if (!_isCurrentSource(descriptor.id, source)) return;
       onlineUnavailable.add(descriptor.id);
@@ -558,7 +604,9 @@ class CustomAppsController extends ChangeNotifier
   /// כשל בבדיקה אינו עוצר את השאר — הוא נספר ומדווח בסיכום, כי במחשב
   /// המנותק "אין רשת" הוא הנורמה ולא שגיאה.
   Future<({int checked, int updates, int failed})> checkAllOnline() async {
-    if (isCheckingAll) return (checked: 0, updates: 0, failed: 0);
+    if (isCheckingAll || isDownloadingAll) {
+      return (checked: 0, updates: 0, failed: 0);
+    }
     final targets = _onlineApps;
     if (targets.isEmpty) return (checked: 0, updates: 0, failed: 0);
 
@@ -578,16 +626,25 @@ class CustomAppsController extends ChangeNotifier
 
   /// סדרתי בכוונה: אלה קריאות API קלות, ובמקביל הן רק היו מסכנות
   /// חסימת-קצב מול הריפו.
-  Future<void> _checkEach(List<CustomAppView> targets) async {
+  Future<int> _checkEach(
+    List<CustomAppView> targets, {
+    bool Function()? isCancelled,
+  }) async {
     checkAllTotal = targets.length;
     checkAllDone = 0;
     notifyListeners();
     try {
       for (final app in targets) {
-        await checkOnline(app.descriptor);
+        if (isCancelled?.call() ?? false) break;
+        try {
+          await _checkOnline(app.descriptor, isCancelled: isCancelled);
+        } on CustomAppDownloadCancelled {
+          break;
+        }
         checkAllDone = (checkAllDone ?? 0) + 1;
         notifyListeners();
       }
+      return checkAllDone!;
     } finally {
       checkAllTotal = null;
       checkAllDone = null;
@@ -599,7 +656,10 @@ class CustomAppsController extends ChangeNotifier
   /// כשאין סבב.
   int? downloadAllDone;
   int? downloadAllTotal;
-  bool get isDownloadingAll => downloadAllTotal != null;
+  bool get isDownloadingAll =>
+      _activeDownload?.all == true || downloadAllTotal != null;
+  bool get canDownloadAll =>
+      !isDisposed && !isCheckingAll && !isDownloadActive && checkingIds.isEmpty;
 
   /// מוריד לכונן את מה שיש לו ברשת גרסה חדשה מזו ששמורה — **ורק אותו**.
   ///
@@ -609,93 +669,143 @@ class CustomAppsController extends ChangeNotifier
   ///
   /// הורדה אחת בכל רגע, מאותה סיבה שב-[download]: כולן חולקות את אותו
   /// רוחב פס, ובמקביל הן רק היו מאטות זו את זו.
-  Future<({int checked, int downloaded, int failed, int notChecked})>
-      downloadAllOutdated() async {
-    const nothing = (checked: 0, downloaded: 0, failed: 0, notChecked: 0);
-    if (isCheckingAll || isDownloadingAll || downloadingId != null) {
-      return nothing;
-    }
+  Future<CustomAppsBatchDownloadResult> downloadAllOutdated() async {
+    const nothing = (
+      checked: 0,
+      downloaded: 0,
+      failed: 0,
+      notChecked: 0,
+      cancelled: false,
+    );
+    if (!canDownloadAll) return nothing;
     final online = _onlineApps;
     if (online.isEmpty) return nothing;
 
-    final unchecked = [
-      for (final app in online)
-        if (!onlineVersions.containsKey(app.descriptor.id) &&
-            !onlineUnavailable.contains(app.descriptor.id))
-          app,
-    ];
-    if (unchecked.isNotEmpty) await _checkEach(unchecked);
+    final active = _CustomAppDownload(all: true);
+    bool isCancelled() => active.cancelRequested || isDisposed;
+    _activeDownload = active;
 
-    final notChecked = [
-      for (final app in online)
-        if (onlineUnavailable.contains(app.descriptor.id)) app,
-    ].length;
-    final checked = online.length - notChecked;
-
-    // המזהים נלקחים מראש: כל הורדה מרעננת את הרשימה, והתצוגות שבה מוחלפות.
-    final targets = [for (final app in outdatedApps) app.descriptor.id];
-    if (targets.isEmpty) {
-      return (
-        checked: checked,
-        downloaded: 0,
-        failed: 0,
-        notChecked: notChecked,
-      );
-    }
-
-    downloadAllTotal = targets.length;
-    downloadAllDone = 0;
-    notifyListeners();
-    var downloaded = 0;
     try {
+      final unchecked = [
+        for (final app in online)
+          if (!onlineVersions.containsKey(app.descriptor.id) &&
+              !onlineUnavailable.contains(app.descriptor.id))
+            app,
+      ];
+      final checkedNow = unchecked.isEmpty
+          ? 0
+          : await _checkEach(unchecked, isCancelled: isCancelled);
+      final notChecked = online
+          .where((app) => onlineUnavailable.contains(app.descriptor.id))
+          .length;
+      final checked =
+          online.length - notChecked - (unchecked.length - checkedNow);
+      if (isCancelled()) {
+        return (
+          checked: checked,
+          downloaded: 0,
+          failed: 0,
+          notChecked: notChecked,
+          cancelled: true,
+        );
+      }
+
+      // כל הורדה מרעננת את הרשימה, ולכן לוקחים ממנה את המזהים מראש.
+      final targets = [for (final app in outdatedApps) app.descriptor.id];
+      var downloaded = 0;
+      var failed = 0;
+      var cancelled = false;
+      if (targets.isNotEmpty) {
+        downloadAllTotal = targets.length;
+        downloadAllDone = 0;
+        notifyListeners();
+      }
       for (final id in targets) {
-        if (await download(id) != null) downloaded++;
+        if (isCancelled()) {
+          cancelled = true;
+          break;
+        }
+        final result = await _download(id, isCancelled);
+        if (result.cancelled) {
+          cancelled = true;
+          break;
+        }
+        if (result.installer != null) {
+          downloaded++;
+        } else {
+          failed++;
+        }
         downloadAllDone = (downloadAllDone ?? 0) + 1;
         notifyListeners();
       }
+      return (
+        checked: checked,
+        downloaded: downloaded,
+        failed: failed,
+        notChecked: notChecked,
+        cancelled: cancelled,
+      );
     } finally {
+      _activeDownload = null;
       downloadAllTotal = null;
       downloadAllDone = null;
       notifyListeners();
     }
-    return (
-      checked: checked,
-      downloaded: downloaded,
-      failed: targets.length - downloaded,
-      notChecked: notChecked,
-    );
   }
 
-  Future<StoredInstaller?> download(String id) async {
-    if (downloadingId != null) return null;
+  Future<CustomAppDownloadResult?> download(String id) async {
+    if (isDownloadActive || isDisposed) return null;
+    final active = _CustomAppDownload(all: false);
+    _activeDownload = active;
+    try {
+      return await _download(id, () => active.cancelRequested || isDisposed);
+    } finally {
+      _activeDownload = null;
+      notifyListeners();
+    }
+  }
+
+  Future<CustomAppDownloadResult> _download(
+    String id,
+    bool Function() isCancelled,
+  ) async {
     downloadingId = id;
     downloadReceived = null;
     downloadTotal = null;
     notifyListeners();
 
     final checked = _onlineReleases[id];
-    final stored = await _guard(
-      () => _manager.downloadFromGithub(
-        id,
-        release: checked?.release,
-        releaseSource: checked?.source,
-        onProgress: (received, total) {
-          downloadReceived = received;
-          downloadTotal = total;
-          notifyProgress();
-        },
-      ),
-    );
-
-    downloadingId = null;
-    _onlineReleases.remove(id);
-    if (stored != null) {
-      onlineVersions.remove(id);
-      await load();
-    } else {
-      notifyListeners();
+    try {
+      final result = await _guard<CustomAppDownloadResult>(() async {
+            try {
+              final installer = await _manager.downloadFromGithub(
+                id,
+                release: checked?.release,
+                releaseSource: checked?.source,
+                onProgress: (received, total) {
+                  downloadReceived = received;
+                  downloadTotal = total;
+                  notifyProgress();
+                },
+                isCancelled: isCancelled,
+              );
+              return (installer: installer, cancelled: false);
+            } on CustomAppDownloadCancelled {
+              return (installer: null, cancelled: true);
+            }
+          }) ??
+          (installer: null, cancelled: false);
+      if (!result.cancelled) _onlineReleases.remove(id);
+      if (result.installer != null) {
+        onlineVersions.remove(id);
+        await load();
+      }
+      return result;
+    } finally {
+      downloadingId = null;
+      downloadReceived = null;
+      downloadTotal = null;
     }
-    return stored;
   }
 
   /// What [install] would refuse here — asked before it, see

@@ -166,7 +166,7 @@ class _DownloadController extends CustomAppsController {
   Future<void> fillMissingIcons({bool readOnly = false}) async {}
 
   @override
-  Future<StoredInstaller?> download(String id) async {
+  Future<CustomAppDownloadResult?> download(String id) async {
     downloadingId = id;
     downloadReceived = 1024;
     downloadTotal = total;
@@ -174,7 +174,7 @@ class _DownloadController extends CustomAppsController {
     final installer = await _completion.future;
     downloadingId = null;
     notifyListeners();
-    return installer;
+    return (installer: installer, cancelled: false);
   }
 
   void reportProgress(int received) {

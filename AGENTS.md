@@ -166,11 +166,10 @@ It works because **no install writes to the drive** (best-effort exception: a
 smart-search asset failing its sha256, or a library one failing a second full
 read, is deleted, §5.2):
 Inno writes to the machine, the library applier stages next to the existing DB,
-plugins go into Otzaria's own folder. What moves to `stateDir` is the log, `launcher_settings.json`,
-`faq_customization.json`, `library_state.json`, `otzaria_install_state.json`,
-`custom_apps_announced.json` — and the state files belong there anyway ("which
-version is installed" describes the machine). Preferences are seeded once
-(`AppPaths.seedPreferences`); the state files deliberately are not.
+plugins go into Otzaria's own folder. Logs and machine state move to `stateDir`.
+`AppPaths.seedPreferences` seeds `launcher_settings.json` once. Machine state
+is never seeded. Read-only FAQ customizations use the per-drive local cache
+below (§5.3).
 
 **State files live in `<stateDir>/logs/`, not the root.** `AppPaths.stateFileNames`
 (`otzaria_install_state`, `library_state`, `custom_apps_announced`,
@@ -1098,6 +1097,13 @@ bundle. `LauncherInstallLayout._resolveMacOS` and `LauncherSelfInstaller` both a
 it. When the drive refuses writes, the machine-local state dir is
 `~/Library/Application Support/`; `XDG_DATA_HOME` and `~/.local` are a Linux
 convention and hide it from a Mac user.
+
+**Save each locked drive's FAQ and source digest together in one local file.**
+With one machine-wide copy, switching drives could erase a local edit. A
+separate digest write could fail while the copy succeeded, causing the same
+loss on restart. Hash the valid source contents instead of trusting FAT32
+timestamps (#289). `FaqStore` uses `logs/faq/`, keyed by volume and relative
+path when possible.
 
 ### 5.4 Updating the library (the offline machine)
 

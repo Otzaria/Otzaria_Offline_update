@@ -1,31 +1,35 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart' as p;
 
 import '../services/app_logger.dart';
+import '../services/faq_store.dart';
 import '../services/serial_queue.dart';
 import '../settings/faq_customization.dart';
 
-/// מחזיק את ההתאמות שהמשתמש עשה להדרכה וכותב אותן לדיסק. אותה כתיבה אטומית
-/// כמו ב-`SettingsController` (קובץ זמני + rename), מאותה סיבה.
+/// מחזיק את ההתאמות להדרכה ושומר אותן בדיסק.
 class FaqController extends ChangeNotifier {
-  FaqController({required String dataDir})
-      : _file = File(p.join(dataDir, 'faq_customization.json'));
+  FaqController({required String dataDir, String? readOnlyDriveDir})
+      : _store =
+            FaqStore(stateDir: dataDir, readOnlyDriveDir: readOnlyDriveDir);
 
-  final File _file;
+  final FaqStore _store;
 
   FaqCustomization _value = const FaqCustomization();
   FaqCustomization get value => _value;
 
-  Future<void> load() async {
+  Future<void>? _initialLoad;
+  Future<void>? get initialLoad => _initialLoad;
+  bool _disposed = false;
+  bool _edited = false;
+
+  Future<void> load() => _initialLoad ??= _load();
+
+  Future<void> _load() async {
     try {
-      if (!await _file.exists()) return;
-      final raw = jsonDecode(await _file.readAsString());
-      if (raw is! Map<String, dynamic>) return;
-      _value = FaqCustomization.fromJson(raw);
+      final value = await _store.load();
+      if (value == null || _disposed || _edited) return;
+      _value = value;
       notifyListeners();
     } catch (e, st) {
       // קובץ פגום מחזיר את ההדרכה לנוסח המקורי, ואינו מונע הפעלה.
@@ -37,6 +41,7 @@ class FaqController extends ChangeNotifier {
 
   Future<void> update(FaqCustomization next) {
     _pendingSave?.cancel();
+    _edited = true;
     _value = next;
     notifyListeners();
     return _queue.run(_save);
@@ -48,6 +53,7 @@ class FaqController extends ChangeNotifier {
   /// כונן נייד לא תכתוב קובץ בכל הקשה. [flush] כותב מיד.
   void updateDeferred(FaqCustomization next, Duration delay) {
     _pendingSave?.cancel();
+    _edited = true;
     _value = next;
     notifyListeners();
     _pendingSave = Timer(delay, () => unawaited(_queue.run(_save)));
@@ -64,19 +70,14 @@ class FaqController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _pendingSave?.cancel();
     super.dispose();
   }
 
   Future<void> _save() async {
     try {
-      await _file.parent.create(recursive: true);
-      final temp = File('${_file.path}.tmp');
-      await temp.writeAsString(
-        const JsonEncoder.withIndent('  ').convert(_value.toJson()),
-        flush: true,
-      );
-      await temp.rename(_file.path);
+      await _store.save(_value);
     } catch (e, st) {
       AppLogger.instance.error('שמירת התאמות ההדרכה נכשלה', e, st);
     }

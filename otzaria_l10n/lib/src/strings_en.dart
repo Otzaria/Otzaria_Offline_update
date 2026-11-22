@@ -4568,6 +4568,10 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get downloadingLabel => 'Downloading…';
   @override
+  String get cancelDownloadButton => 'Cancel download';
+  @override
+  String get downloadCancelledSnack => 'The download was cancelled';
+  @override
   String get checkOnlineButton => 'Check online';
   @override
   String get checkAllOnlineButton => 'Check all programs online';

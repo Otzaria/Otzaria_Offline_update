@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import 'src/network_errors.dart';
+import 'src/request_cancellation.dart';
 
 export 'src/atomic_file.dart'
     show isAtomicTempNameOf, writeBytesAtomically, writeStringAtomically;
@@ -45,7 +46,7 @@ Future<FileDownloadResult> downloadFile({
   bool calculateSha256 = false,
 }) async {
   final cancellation =
-      checkCancelled == null ? null : _DownloadCancellation(checkCancelled);
+      checkCancelled == null ? null : RequestCancellation(checkCancelled);
   try {
     for (var attempt = 0;; attempt++) {
       try {
@@ -100,7 +101,7 @@ Future<FileDownloadResult> _downloadFile({
   Duration connectTimeout = const Duration(seconds: 20),
   Duration stallTimeout = const Duration(seconds: 30),
   void Function(int received, int total)? onProgress,
-  _DownloadCancellation? cancellation,
+  RequestCancellation? cancellation,
   required bool keepPartialOnCancel,
   required bool calculateSha256,
 }) async {
@@ -149,7 +150,6 @@ Future<FileDownloadResult> _downloadFile({
   for (var attempt = 0; attempt < 2; attempt++) {
     cancellation?.check();
     final abort = Completer<void>();
-    cancellation?._abort = abort;
     final request = http.AbortableRequest('GET', Uri.parse(url),
         abortTrigger: abort.future);
     request.headers['Accept-Encoding'] = 'identity';
@@ -169,18 +169,15 @@ Future<FileDownloadResult> _downloadFile({
     Digest? digest;
     var retain = offset > 0;
     try {
-      final pending = client.send(request);
-      unawaited(pending.then((response) async {
-        if (abort.isCompleted) {
-          try {
-            await response.stream.listen((_) {}).cancel();
-          } catch (_) {}
-        }
-      }, onError: (Object _) {}));
+      final pending = sendAbortableRequest(
+        client,
+        request,
+        abort,
+        cancellation: cancellation,
+      );
       final http.StreamedResponse response;
       try {
-        response = await (cancellation?.wait(pending) ?? pending)
-            .timeout(connectTimeout);
+        response = await pending.timeout(connectTimeout);
       } on TlsException catch (e) {
         throw NetworkCertificateException(uri: request.url, cause: e);
       }
@@ -357,70 +354,11 @@ Future<FileDownloadResult> _downloadFile({
       rethrow;
     } finally {
       hasher?.close();
-      cancellation?._abort = null;
+      cancellation?.abort = null;
       if (!abort.isCompleted) abort.complete();
     }
   }
   throw statusError(416);
-}
-
-class _DownloadCancellation {
-  _DownloadCancellation(this._check) {
-    _cancelled.future.ignore();
-    _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      try {
-        check();
-      } catch (_) {}
-    });
-  }
-
-  final void Function() _check;
-  final _cancelled = Completer<Never>();
-  late final Timer _timer;
-  Completer<void>? _abort;
-  Object? _error;
-  StackTrace? _stack;
-
-  void check() {
-    if (_error case final error?) Error.throwWithStackTrace(error, _stack!);
-    try {
-      _check();
-    } catch (error, stack) {
-      _error = error;
-      _stack = stack;
-      _timer.cancel();
-      if (_abort case final abort? when !abort.isCompleted) abort.complete();
-      _cancelled.completeError(error, stack);
-      rethrow;
-    }
-  }
-
-  Future<T> wait<T>(Future<T> pending) =>
-      Future.any([pending, _cancelled.future]);
-
-  Stream<T> bind<T>(Stream<T> source) => Stream<T>.multi((controller) {
-        var active = true;
-        final subscription = source.listen(
-          controller.addSync,
-          onError: controller.addErrorSync,
-          onDone: () {
-            active = false;
-            controller.closeSync();
-          },
-        );
-        controller.onPause = subscription.pause;
-        controller.onResume = subscription.resume;
-        controller.onCancel = () {
-          active = false;
-          return subscription.cancel();
-        };
-        unawaited(_cancelled.future.then<void>((_) {},
-            onError: (Object error, StackTrace stack) {
-          if (active) controller.addError(error, stack);
-        }));
-      });
-
-  void dispose() => _timer.cancel();
 }
 
 String? _strongEtag(Object? value) =>

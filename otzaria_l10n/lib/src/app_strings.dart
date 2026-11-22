@@ -2296,6 +2296,10 @@ abstract class CustomAppsStrings {
   String get downloadButton;
   String get downloadUpdateButton;
   String get downloadingLabel;
+
+  /// עוצר את ההורדה שרצה (ובהורדת הכול גם את הבאות); מה שהושלם נשאר.
+  String get cancelDownloadButton;
+  String get downloadCancelledSnack;
   String get checkOnlineButton;
 
   // ── מצב התוכנה על הכרטיס ──

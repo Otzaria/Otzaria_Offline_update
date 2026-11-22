@@ -419,14 +419,17 @@ class CustomAppsManager {
     }
   }
 
-  Future<GithubRelease?> peekLatestOnline(AppDescriptor descriptor) async {
+  Future<GithubRelease?> peekLatestOnline(
+    AppDescriptor descriptor, {
+    bool Function()? isCancelled,
+  }) async {
     final source = descriptor.github;
     if (descriptor.sourceKind != AppSourceKind.github || source == null) {
       throw AppDescriptorException(
         AppL10n.strings.customAppsDomain.sourceIsNotGithub,
       );
     }
-    return github.fetchLatest(source);
+    return github.fetchLatest(source, isCancelled: isCancelled);
   }
 
   Future<StoredInstaller> downloadFromGithub(
@@ -434,10 +437,13 @@ class CustomAppsManager {
     GithubRelease? release,
     GithubSource? releaseSource,
     void Function(int received, int total)? onProgress,
+    bool Function()? isCancelled,
   }) async {
+    CustomAppDownloadCancelled.check(isCancelled);
     final t = AppL10n.strings.customAppsDomain;
     final store = await _store();
     final entry = await store.load(id);
+    CustomAppDownloadCancelled.check(isCancelled);
     if (entry == null) throw AppDescriptorException(t.appNotRegistered(id));
 
     final source = entry.descriptor.github;
@@ -449,7 +455,9 @@ class CustomAppsManager {
     var asset =
         latest == null ? null : _usableAsset(latest, source.assetPattern);
     if (latest == null || asset == null) {
-      latest = await peekLatestOnline(entry.descriptor);
+      latest =
+          await peekLatestOnline(entry.descriptor, isCancelled: isCancelled);
+      CustomAppDownloadCancelled.check(isCancelled);
       if (latest == null) throw AppDescriptorException(t.githubNoReleases);
       asset = _usableAsset(latest, source.assetPattern);
       if (asset == null) {
@@ -464,7 +472,12 @@ class CustomAppsManager {
     final temp = '$target.part';
     final StoredInstaller stored;
     try {
-      final digest = await github.download(asset, temp, onProgress: onProgress);
+      final digest = await github.download(
+        asset,
+        temp,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
       stored = StoredInstaller(
         fileName: asset.name,
         version: latest.version,
@@ -472,6 +485,7 @@ class CustomAppsManager {
         addedAt: DateTime.now(),
         sha256: digest,
       );
+      CustomAppDownloadCancelled.check(isCancelled);
     } catch (_) {
       await _deleteQuietly(File(temp));
       rethrow;

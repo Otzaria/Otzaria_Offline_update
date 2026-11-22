@@ -146,6 +146,23 @@ void main() {
       expect(find.text(t.title), findsOneWidget);
     });
 
+    testWidgets('עריכה בכונן נעול מחכה לטעינת ההתאמות', (tester) async {
+      final loading = Completer<void>();
+      faq.dispose();
+      faq = _LoadingFaqController(
+        dataDir: tempDir.path,
+        initialLoad: loading.future,
+      );
+      await pumpBody(tester, readOnly: true);
+
+      await tapInList(tester, find.byKey(const ValueKey('faq.edit')));
+      expect(find.text(t.editTitle), findsNothing);
+
+      loading.complete();
+      await tester.pumpAndSettle();
+      expect(find.text(t.editTitle), findsOneWidget);
+    });
+
     testWidgets('בכונן מוגן העריכה אומרת שהשינויים נשמרים במחשב הזה',
         (tester) async {
       await pumpBody(tester, readOnly: true);
@@ -532,4 +549,11 @@ void main() {
       }
     }
   });
+}
+
+class _LoadingFaqController extends FaqController {
+  _LoadingFaqController({required super.dataDir, required this.initialLoad});
+
+  @override
+  final Future<void> initialLoad;
 }
