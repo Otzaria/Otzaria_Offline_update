@@ -110,10 +110,21 @@ class GithubAppClient {
         .toList(growable: false);
   }
 
-  /// הקובץ שתואם לתבנית שנשמרה, או `null` כשאין כזה בגרסה הזאת.
+  /// הקובץ שתואם לתבנית שנשמרה, או `null` כשאין כזה בגרסה הזאת. גרסה שאין
+  /// בה אף קובץ עם ארכיטקטורה עברה למתקין אחד — אז נבחר זה שבלי הארכיטקטורה.
   static GithubAsset? selectAsset(GithubRelease release, String pattern) {
     for (final asset in release.assets) {
       if (GithubAssetPattern.matches(pattern, asset.name)) return asset;
+    }
+    final neutral = GithubAssetPattern.withoutArchitecture(pattern);
+    // `npp.Installer.exe` beside `.x64.exe` is the x86 build, not a universal one.
+    if (neutral == null ||
+        release.assets
+            .any((a) => GithubAssetPattern.namesArchitecture(a.name))) {
+      return null;
+    }
+    for (final asset in release.assets) {
+      if (GithubAssetPattern.matches(neutral, asset.name)) return asset;
     }
     return null;
   }

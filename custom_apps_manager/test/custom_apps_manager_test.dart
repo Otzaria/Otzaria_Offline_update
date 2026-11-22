@@ -92,8 +92,9 @@ void main() {
         };
 
     Future<CustomAppsManager> managerServing(
-      List<Map<String, dynamic>> releases,
-    ) async {
+      List<Map<String, dynamic>> releases, {
+      String learnedFrom = 'App-1.4.exe',
+    }) async {
       final m = CustomAppsManager(
         resolveMirrorDir: () async => root,
         readVersion: (_) => '1',
@@ -119,7 +120,7 @@ void main() {
           github: GithubSource(
             owner: 'o',
             repo: 'r',
-            assetPattern: GithubAssetPattern.fromAssetName('App-1.4.exe'),
+            assetPattern: GithubAssetPattern.fromAssetName(learnedFrom),
           ),
         ),
       );
@@ -160,6 +161,28 @@ void main() {
       final stored = await m.downloadFromGithub(id);
       expect(stored.fileName, 'App-1.5.exe');
       expect(stored.version, '1.5');
+    });
+
+    test('an x64 pattern downloads the single installer of a newer release',
+        () async {
+      final m = await managerServing(
+        [
+          releaseJson('v10.7.0', [
+            'KitveiHakodeshPortable-v10.7.0.zip',
+            'KleiKodeshSetup-v10.7.0.exe',
+          ]),
+          releaseJson('v9.1.4', [
+            'KleiKodeshSetup-v9.1.4.exe',
+            'KleiKodeshSetup-v9.1.4-x86.exe',
+            'KleiKodeshSetup-v9.1.4-x64.exe',
+          ]),
+        ],
+        learnedFrom: 'KleiKodeshSetup-v9.0.1-x64.exe',
+      );
+
+      final stored = await m.downloadFromGithub(id);
+      expect(stored.fileName, 'KleiKodeshSetup-v10.7.0.exe');
+      expect(stored.version, '10.7.0');
     });
 
     test('a backport published after a newer release does not win', () async {

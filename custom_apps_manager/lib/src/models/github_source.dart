@@ -131,6 +131,36 @@ abstract final class GithubAssetPattern {
     return buffer.toString();
   }
 
+  /// מציין ארכיטקטורה בתבנית, עם המפריד שלפניו: `-x64`, `_x86`, `.arm64`,
+  /// ` \(x64\)`. המפריד שאחריו נשאר, ולכן השם שסביבו נשמר שלם.
+  static final RegExp _architectureToken = RegExp(
+    r'(?:[-_ ]|\\\.)(?:x64|x86|amd64|arm64|win64|win32|64bit|32bit)'
+    r'(?=[-_ ]|\\\.|\$)'
+    r'| \\\((?:x64|x86|amd64|arm64)\\\)',
+    caseSensitive: false,
+  );
+
+  /// [pattern] בלי מציין הארכיטקטורה, או `null` כשאין בה כזה או שהתוצאה
+  /// אינה מעוגנת לשם (`_x64$` שנערך ידנית היה הופך ל-`$`, שתואם לכל קובץ).
+  static String? withoutArchitecture(String pattern) {
+    if (!pattern.startsWith('^')) return null;
+    final neutral = pattern.replaceAll(_architectureToken, '');
+    if (neutral == pattern || !_anchoredName.hasMatch(neutral)) return null;
+    return neutral;
+  }
+
+  static final RegExp _anchoredName = RegExp(r'^\^[A-Za-z0-9]');
+
+  /// מציין ארכיטקטורה **בשם קובץ** (לא בתבנית), אחרי מפריד או בתחילת השם.
+  static final RegExp _architectureInName = RegExp(
+    r'(?:^|[-_. (])(?:x64|x86|x86_64|amd64|arm64|aarch64|win64|win32|i386|i686'
+    r'|64bit|32bit|64-bit|32-bit)(?=[-_. )]|$)',
+    caseSensitive: false,
+  );
+
+  static bool namesArchitecture(String assetName) =>
+      _architectureInName.hasMatch(assetName);
+
   /// האם [assetName] תואם ל-[pattern]. תבנית פגומה אינה מפילה את הבדיקה —
   /// היא פשוט לא מתאימה לכלום, והמשתמש יראה "אין קובץ מתאים".
   static bool matches(String pattern, String assetName) {
