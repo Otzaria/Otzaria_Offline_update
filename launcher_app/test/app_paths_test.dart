@@ -602,120 +602,23 @@ void main() {
       expect(onMachine.readAsStringSync(), 'from-machine');
     });
 
-    test('#289: עדכון בכונן מגיע גם למחשב שכבר העתיק גרסה ישנה', () async {
-      final paths = AppPaths(
-        dataDir: drive.path,
-        stateDir: machine.path,
-        readOnly: true,
+    test('הגדרות שכבר במחשב אינן נקראות מהכונן', () async {
+      File(p.join(drive.path, 'launcher_settings.json'))
+          .writeAsStringSync('from-drive');
+      File(p.join(machine.path, 'launcher_settings.json'))
+          .writeAsStringSync('from-machine');
+      final io = _TrackingFileIOOverrides();
+
+      await IOOverrides.runWithIOOverrides(
+        () => AppPaths(
+          dataDir: drive.path,
+          stateDir: machine.path,
+          readOnly: true,
+        ).seedPreferences(),
+        io,
       );
-      final onDrive = File(p.join(drive.path, 'faq_customization.json'))
-        ..writeAsStringSync('old message')
-        ..setLastModifiedSync(DateTime(2026, 11, 1));
-      await paths.seedPreferences();
 
-      onDrive
-        ..writeAsStringSync('new message')
-        ..setLastModifiedSync(DateTime(2026, 11, 10));
-      await paths.seedPreferences();
-
-      expect(
-        File(p.join(machine.path, 'faq_customization.json')).readAsStringSync(),
-        'new message',
-      );
-    });
-
-    test('עריכה במחשב אחרי ההעתקה גוברת על הכונן שלא השתנה', () async {
-      final paths = AppPaths(
-        dataDir: drive.path,
-        stateDir: machine.path,
-        readOnly: true,
-      );
-      File(p.join(drive.path, 'faq_customization.json'))
-        ..writeAsStringSync('from-drive')
-        ..setLastModifiedSync(DateTime(2026, 11, 1));
-      await paths.seedPreferences();
-      final local = File(p.join(machine.path, 'faq_customization.json'))
-        ..writeAsStringSync('edited here')
-        ..setLastModifiedSync(DateTime(2026, 11, 5));
-
-      await paths.seedPreferences();
-
-      expect(local.readAsStringSync(), 'edited here');
-    });
-
-    test('שעון מחשב שמפגר אינו מוחק עריכה מקומית', () async {
-      final paths = AppPaths(
-        dataDir: drive.path,
-        stateDir: machine.path,
-        readOnly: true,
-      );
-      File(p.join(drive.path, 'faq_customization.json'))
-        ..writeAsStringSync('from-drive')
-        ..setLastModifiedSync(DateTime(2026, 11, 10));
-      await paths.seedPreferences();
-      final local = File(p.join(machine.path, 'faq_customization.json'))
-        ..writeAsStringSync('edited here')
-        ..setLastModifiedSync(DateTime(2026, 10, 1));
-
-      await paths.seedPreferences();
-      await paths.seedPreferences();
-
-      expect(local.readAsStringSync(), 'edited here');
-    });
-
-    test('זמן שינוי שזז בכונן (FAT32 בשעון קיץ) בלי שינוי תוכן — העריכה נשמרת',
-        () async {
-      final paths = AppPaths(
-        dataDir: drive.path,
-        stateDir: machine.path,
-        readOnly: true,
-      );
-      final onDrive = File(p.join(drive.path, 'faq_customization.json'))
-        ..writeAsStringSync('from-drive')
-        ..setLastModifiedSync(DateTime(2026, 10, 1, 12));
-      await paths.seedPreferences();
-      final local = File(p.join(machine.path, 'faq_customization.json'))
-        ..writeAsStringSync('edited here');
-
-      onDrive.setLastModifiedSync(DateTime(2026, 10, 1, 13));
-      await paths.seedPreferences();
-
-      expect(local.readAsStringSync(), 'edited here');
-    });
-
-    test('עותק ישן בלי רישום וזהה לכונן — רק נרשם, ועריכה אחריו נשמרת',
-        () async {
-      final paths = AppPaths(
-        dataDir: drive.path,
-        stateDir: machine.path,
-        readOnly: true,
-      );
-      File(p.join(drive.path, 'faq_customization.json'))
-          .writeAsStringSync('same');
-      final local = File(p.join(machine.path, 'faq_customization.json'))
-        ..writeAsStringSync('same');
-      await paths.seedPreferences();
-
-      local.writeAsStringSync('edited here');
-      await paths.seedPreferences();
-
-      expect(local.readAsStringSync(), 'edited here');
-    });
-
-    test('עותק ישן בלי רישום (מגרסה קודמת) מתעדכן מהכונן פעם אחת', () async {
-      final paths = AppPaths(
-        dataDir: drive.path,
-        stateDir: machine.path,
-        readOnly: true,
-      );
-      File(p.join(drive.path, 'faq_customization.json'))
-          .writeAsStringSync('new message');
-      final local = File(p.join(machine.path, 'faq_customization.json'))
-        ..writeAsStringSync('old message');
-
-      await paths.seedPreferences();
-
-      expect(local.readAsStringSync(), 'new message');
+      expect(io.paths, [p.join(machine.path, 'launcher_settings.json')]);
     });
 
     test('קובצי מצב עוברים מהשורש ל-logs, וקובץ שכבר שם גובר', () async {
@@ -968,4 +871,14 @@ class _UndeletableFile implements File {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _TrackingFileIOOverrides extends IOOverrides {
+  final paths = <String>[];
+
+  @override
+  File createFile(String path) {
+    paths.add(path);
+    return super.createFile(path);
+  }
 }

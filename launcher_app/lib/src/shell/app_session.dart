@@ -164,7 +164,10 @@ class AppSession extends ChangeNotifier {
     _launcherUpdate =
         LauncherUpdateController(dataDir: dataDir, updater: launcherUpdater)
           ..addListener(_onChange);
-    _faq = FaqController(dataDir: stateDir);
+    _faq = FaqController(
+      dataDir: stateDir,
+      readOnlyDriveDir: readOnly ? dataDir : null,
+    );
     _errorReports = (errorReports ??
         ErrorReportsController.forDrive(
           stateDir: stateDir,

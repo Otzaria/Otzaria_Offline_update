@@ -144,6 +144,8 @@ class _FaqBodyState extends State<FaqBody> {
   /// אומת בהרצה הזו אינו נשאל שוב.
   Future<void> _toggleEditing() async {
     if (_editing) return _finishEditing();
+    if (widget.readOnly) await widget.faq.initialLoad;
+    if (!mounted || _editing) return;
     final gate = widget.saferMode;
     if (gate != null && gate.isLocked) {
       final unlocked = await showSaferModePasswordDialog(

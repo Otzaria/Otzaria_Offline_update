@@ -1,10 +1,8 @@
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:ffi/ffi.dart';
-
-import 'package:otzaria_downloads/otzaria_downloads.dart';
+import 'package:otzaria_downloads/otzaria_downloads.dart'
+    show writeBytesAtomically;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:win32/win32.dart';
@@ -314,76 +312,17 @@ class AppPaths {
     }
   }
 
-  /// שמות קובצי ההעדפות שנוסעים עם הכונן — ראו [seedPreferences].
-  static const List<String> preferenceFileNames = [
-    'launcher_settings.json',
-    'faq_customization.json',
-  ];
-
-  /// ההעדפות שבעל הכונן מעדכן לכולם — מתעדכנות בכל פעם שהעותק בכונן
-  /// משתנה (#289). השאר (שפה, מצב בטוח, מייל) נשארים של המחשב.
-  static const Set<String> driveOwnedPreferenceFileNames = {
-    'faq_customization.json',
-  };
-
-  /// איזו גרסה של כל קובץ מהכונן הועתקה לאחרונה, לפי sha256 של התוכן — לא
-  /// לפי שעון (FAT32 מזיז את זמן השינוי בשעה בכל מעבר לשעון קיץ/חורף).
-  static const String seededPreferencesFileName = 'seeded_preferences.json';
-
-  /// מעתיק את **העדפות** המשתמש מהכונן לתיקיית הכתיבה שבמחשב: כל קובץ
-  /// כשאין כאן עותק, וקובצי [driveOwnedPreferenceFileNames] גם כשהעותק
-  /// בכונן השתנה מאז ההעתקה הקודמת. קובצי המצב אינם מועתקים: הם מתארים את
-  /// המחשב שכתב אותם. best-effort.
+  /// הגדרות המחשב מועתקות מהכונן הנעול רק אם טרם נשמרו כאן.
   Future<void> seedPreferences() async {
     if (!readOnly) return;
-    final recordFile = File(p.join(stateFilesDir, seededPreferencesFileName));
-    final seeded = await _readSeeded(recordFile);
-    var changed = false;
-    for (final name in preferenceFileNames) {
-      try {
-        final source = File(p.join(dataDir, name));
-        if (!await source.exists()) continue;
-        final target = File(p.join(stateDir, name));
-        final bytes = await source.readAsBytes();
-        final digest = sha256.convert(bytes).toString();
-        if (await target.exists()) {
-          if (!driveOwnedPreferenceFileNames.contains(name)) continue;
-          final last = seeded[name];
-          if (last == digest) continue;
-          // No record yet (seeded by an older launcher): same content is "seen".
-          if (last == null &&
-              sha256.convert(await target.readAsBytes()).toString() == digest) {
-            seeded[name] = digest;
-            changed = true;
-            continue;
-          }
-        }
-        await writeBytesAtomically(target.path, bytes);
-        seeded[name] = digest;
-        changed = true;
-      } on FileSystemException {
-        continue;
-      }
-    }
-    if (!changed) return;
+    const name = 'launcher_settings.json';
+    final target = File(p.join(stateDir, name));
     try {
-      await recordFile.parent.create(recursive: true);
-      await writeStringAtomically(recordFile.path, jsonEncode(seeded));
+      if (await target.exists()) return;
+      final source = File(p.join(dataDir, name));
+      await writeBytesAtomically(target.path, await source.readAsBytes());
     } on FileSystemException {
-      return;
-    }
-  }
-
-  static Future<Map<String, String>> _readSeeded(File file) async {
-    try {
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! Map) return {};
-      return {
-        for (final MapEntry(:key, :value) in decoded.entries)
-          if (key is String && value is String) key: value,
-      };
-    } on Object {
-      return {};
+      // כשל העתקה משאיר את ברירת המחדל.
     }
   }
 
