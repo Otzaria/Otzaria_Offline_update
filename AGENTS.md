@@ -2480,6 +2480,11 @@ limit): the same README.
 The README lists what is masked and that file names can still appear in the
 log excerpt.
 
+**The report draft lives on the machine, never on the drive.** It is saved
+unredacted with screenshots (#290), and a drive draft would open for the next
+person who plugs it in. `AppReportsController.forState(machineDir:)` takes
+`AppPaths.machineStateDir`; no machine dir means no drafts — not `stateDir`.
+
 **The one-time explainer is separate from the count, and loaded before it.** The
 count needs pending reports; the explainer is for everyone, once per computer — a
 notice on the home page (`AppSession.showsReportsIntro`) until "got it"

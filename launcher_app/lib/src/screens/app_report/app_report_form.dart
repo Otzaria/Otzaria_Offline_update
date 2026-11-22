@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../app_report/app_report_draft_store.dart';
 import '../../controllers/app_reports_controller.dart';
 import '../../services/app_logger.dart';
 
@@ -20,7 +23,7 @@ class AppReportForm extends ChangeNotifier {
   })  : _clock = clock ?? DateTime.now,
         type = initialType,
         title = initialTitle,
-        email = reports.savedEmail;
+        _initialEmail = reports.savedEmail;
 
   final AppReportsController reports;
   final AppReportTrigger trigger;
@@ -36,7 +39,8 @@ class AppReportForm extends ChangeNotifier {
   String title;
   String description = '';
   String steps = '';
-  String email;
+  final String _initialEmail;
+  late String email = _initialEmail;
 
   /// הצרופות שנאספו, כבר אחרי הסתרת מידע אישי. `null` כשהאיסוף נכשל.
   Map<String, dynamic>? diagnostics;
@@ -47,14 +51,19 @@ class AppReportForm extends ChangeNotifier {
 
   AppReportSubmission submission = AppReportSubmission.idle;
   AppReportDeliveryResult? result;
+  bool draftCleanupFailed = false;
 
   /// השדה שנכשל בבדיקת התקינות המקומית.
   String? invalidField;
 
   bool _disposed = false;
+  bool _changingDraft = false;
+  String? _draftRevision;
 
   bool get isSending => submission == AppReportSubmission.sending;
   bool get isFinished => submission == AppReportSubmission.finished;
+  bool get isBusy => isSending || _changingDraft;
+  bool get canEdit => !isBusy && !isFinished;
 
   Future<void> loadAttachments() async {
     try {
@@ -78,7 +87,7 @@ class AppReportForm extends ChangeNotifier {
     bool? includeErrorLog,
     List<AppReportImage>? images,
   }) {
-    if (isSending) return;
+    if (!canEdit) return;
     this.type = type ?? this.type;
     this.title = title ?? this.title;
     this.description = description ?? this.description;
@@ -93,9 +102,75 @@ class AppReportForm extends ChangeNotifier {
     _notify();
   }
 
+  /// רק לדיווח הידני: לדיווח על קריסה יש חתימה ומזהה משלו.
+  bool get supportsDraft =>
+      trigger == AppReportTrigger.manual && reports.drafts != null;
+
+  /// ממלא את הטופס מטיוטה שנשמרה. מחזיר `true` כשהייתה כזו.
+  Future<bool> restoreDraft() async {
+    if (!supportsDraft) return false;
+    final draft = await reports.drafts!.load();
+    if (draft == null || _disposed || !canEdit) return false;
+    _draftRevision = draft.revision;
+    type = draft.type ?? type;
+    title = draft.title;
+    description = draft.description;
+    steps = draft.steps;
+    email = draft.email ?? email;
+    includeDiagnostics = draft.includeDiagnostics;
+    includeErrorLog = draft.includeErrorLog;
+    images = List.unmodifiable(draft.images);
+    _notify();
+    return true;
+  }
+
+  AppReportDraft get _draft => AppReportDraft(
+        type: type,
+        title: title,
+        description: description,
+        steps: steps,
+        email: email == _initialEmail ? null : email,
+        includeDiagnostics: includeDiagnostics,
+        includeErrorLog: includeErrorLog,
+        images: images,
+      );
+
+  bool get canSaveDraft => canEdit && !_draft.isEmpty;
+
+  Future<bool> saveDraft() => _changeDraft((store) async {
+        final draft = _draft;
+        if (draft.isEmpty) return _deleteDraft();
+        _draftRevision = await store.save(draft);
+        return true;
+      });
+
+  Future<bool> discardDraft() => _changeDraft((_) => _deleteDraft());
+
+  Future<bool> _changeDraft(
+    Future<bool> Function(AppReportDraftStore store) change,
+  ) async {
+    if (!supportsDraft || !canEdit || _disposed) return false;
+    _changingDraft = true;
+    _notify();
+    try {
+      return await change(reports.drafts!);
+    } finally {
+      _changingDraft = false;
+      _notify();
+    }
+  }
+
+  Future<bool> _deleteDraft() async {
+    final revision = _draftRevision;
+    if (revision == null) return true;
+    final deleted = await reports.drafts!.discard(revision);
+    if (deleted) _draftRevision = null;
+    return deleted;
+  }
+
   /// בודק, שומר את המייל ושולח. מחזיר את השדה הלא תקין, או `null`.
   Future<String?> submit() async {
-    if (collecting || isSending || isFinished) return null;
+    if (collecting || !canEdit) return null;
     if (type == null) {
       invalidField = 'type';
       _notify();
@@ -112,8 +187,8 @@ class AppReportForm extends ChangeNotifier {
     }
     submission = AppReportSubmission.sending;
     _notify();
-    await reports.saveEmail(report.reporterEmail);
     try {
+      await reports.saveEmail(report.reporterEmail);
       result = await reports.service.send(report);
     } catch (error, stack) {
       AppLogger.maybeInstance?.error('שליחת הדיווח נכשלה', error, stack);
@@ -129,6 +204,12 @@ class AppReportForm extends ChangeNotifier {
       submission = AppReportSubmission.idle;
       _notify();
       return null;
+    }
+    try {
+      await _deleteDraft();
+    } on FileSystemException catch (error) {
+      draftCleanupFailed = true;
+      AppLogger.maybeInstance?.warn('מחיקת טיוטת הדיווח נכשלה: $error');
     }
     submission = AppReportSubmission.finished;
     _notify();

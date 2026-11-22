@@ -4748,6 +4748,24 @@ class _AppReports extends AppReportsStrings {
   String get emailInvalid => 'נדרשת כתובת תקינה';
   @override
   String get sendButton => 'שליחה';
+  @override
+  String get saveDraftButton => 'שמירת טיוטה';
+  @override
+  String get discardDraftButton => 'מחיקת הטיוטה';
+  @override
+  String get draftSavedSnack =>
+      'הטיוטה נשמרה. היא תיפתח בפעם הבאה שתפתח את הדיווח.';
+  @override
+  String get draftSaveFailedSnack => 'שמירת הטיוטה נכשלה.';
+  @override
+  String get draftDiscardFailedSnack => 'מחיקת הטיוטה נכשלה.';
+  @override
+  String draftCleanupFailedSnack(bool sent) => sent
+      ? 'הדיווח נשלח, אך מחיקת הטיוטה נכשלה.'
+      : 'הדיווח נכנס לתור, אך מחיקת הטיוטה נכשלה.';
+  @override
+  String get draftRestoredNote =>
+      'נפתחה הטיוטה ששמרת. אפשר לערוך אותה לפני השליחה.';
 
   @override
   String get imagesPrompt => 'לחץ כאן לבחירת צילום מסך';
