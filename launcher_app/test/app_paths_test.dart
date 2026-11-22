@@ -585,11 +585,13 @@ void main() {
       );
     });
 
-    test('העתקה אינה דורסת העדפות שכבר נשמרו במחשב', () async {
+    test('הגדרות המחשב אינן נדרסות, גם כשהעותק בכונן חדש יותר', () async {
       File(p.join(drive.path, 'launcher_settings.json'))
-          .writeAsStringSync('from-drive');
+        ..writeAsStringSync('from-drive')
+        ..setLastModifiedSync(DateTime(2026, 11, 10));
       final onMachine = File(p.join(machine.path, 'launcher_settings.json'))
-        ..writeAsStringSync('from-machine');
+        ..writeAsStringSync('from-machine')
+        ..setLastModifiedSync(DateTime(2026, 11, 1));
 
       await AppPaths(
         dataDir: drive.path,
@@ -598,6 +600,25 @@ void main() {
       ).seedPreferences();
 
       expect(onMachine.readAsStringSync(), 'from-machine');
+    });
+
+    test('הגדרות שכבר במחשב אינן נקראות מהכונן', () async {
+      File(p.join(drive.path, 'launcher_settings.json'))
+          .writeAsStringSync('from-drive');
+      File(p.join(machine.path, 'launcher_settings.json'))
+          .writeAsStringSync('from-machine');
+      final io = _TrackingFileIOOverrides();
+
+      await IOOverrides.runWithIOOverrides(
+        () => AppPaths(
+          dataDir: drive.path,
+          stateDir: machine.path,
+          readOnly: true,
+        ).seedPreferences(),
+        io,
+      );
+
+      expect(io.paths, [p.join(machine.path, 'launcher_settings.json')]);
     });
 
     test('קובצי מצב עוברים מהשורש ל-logs, וקובץ שכבר שם גובר', () async {
@@ -850,4 +871,14 @@ class _UndeletableFile implements File {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _TrackingFileIOOverrides extends IOOverrides {
+  final paths = <String>[];
+
+  @override
+  File createFile(String path) {
+    paths.add(path);
+    return super.createFile(path);
+  }
 }
