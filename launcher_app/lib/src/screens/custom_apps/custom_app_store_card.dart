@@ -126,10 +126,7 @@ class CustomAppAction extends StatelessWidget {
         online;
 
     Widget download(String text) {
-      final onPressed =
-          controller.downloadingId != null || controller.isDownloadingAll
-              ? null
-              : onDownload;
+      final onPressed = controller.isDownloadActive ? null : onDownload;
       final loading = controller.downloadingId == app.descriptor.id;
       return primary
           ? ActionButton.recommended(

@@ -309,4 +309,8 @@ class AppDescriptorException implements Exception {
 /// המשתמש ביטל הורדה של קובץ התקנה. אינה תקלה, ולכן אין לה הודעה.
 class CustomAppDownloadCancelled implements Exception {
   const CustomAppDownloadCancelled();
+
+  static void check(bool Function()? isCancelled) {
+    if (isCancelled?.call() ?? false) throw const CustomAppDownloadCancelled();
+  }
 }

@@ -179,8 +179,7 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
               ActionButton.ghost(
                 text: t.downloadAllButton,
                 icon: FluentIcons.arrow_download_20_regular,
-                onPressed:
-                    busy || _c.downloadingId != null ? null : _downloadAll,
+                onPressed: _c.canDownloadAll ? _downloadAll : null,
               ),
             ],
           ],
@@ -228,7 +227,7 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
               ? (_c.checkAllDone ?? 0) / _c.checkAllTotal!
               : null,
         ),
-      if (_c.isDownloadingAll)
+      if (_c.downloadAllTotal != null)
         ListenableBuilder(
           listenable: _c.progress,
           builder: (context, _) => InfoProgressRow(
@@ -254,8 +253,7 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
           ),
         ),
       if (_c.isLearning) InfoProgressRow(stage: t.learningLabel),
-      if (_c.downloadingId != null || _c.isDownloadingAll)
-        CustomAppCancelDownloadButton(controller: _c),
+      if (_c.isDownloadActive) CustomAppCancelDownloadButton(controller: _c),
     ];
     if (rows.isEmpty) return null;
     return AppCard(
@@ -359,9 +357,11 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
         unawaited(Scrollable.ensureVisible(progressContext));
       }
     });
-    final stored = await download;
+    final result = await download;
+    if (result == null) return;
+    final stored = result.installer;
     if (stored == null) {
-      if (_c.lastDownloadCancelled) {
+      if (result.cancelled) {
         UiSnack.show(AppL10n.strings.customApps.downloadCancelledSnack);
       } else {
         UiSnack.showFailure(_c.errorMessage);
@@ -414,13 +414,14 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
   Future<void> _downloadAll() async {
     final result = await _c.downloadAllOutdated();
     final t = AppL10n.strings.customApps;
-    if (result.checked == 0 && result.notChecked == 0) return;
-    if (_c.lastDownloadCancelled) {
+    if (result.cancelled) {
       // What finished or failed before the cancel is still news.
       final parts = [
         t.downloadCancelledSnack,
         if (result.downloaded > 0) t.downloadAllDoneSnack(result.downloaded),
         if (result.failed > 0) t.downloadAllSomeFailed(result.failed),
+        if (result.notChecked > 0)
+          t.checkAllOnlineSomeFailed(result.notChecked),
       ];
       final sentences = [
         for (final part in parts)
@@ -434,6 +435,7 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
       }
       return;
     }
+    if (result.checked == 0 && result.notChecked == 0) return;
 
     // לא נבדקה אף אחת = אין רשת. אין טעם לומר "אין מה להוריד" על כך.
     if (result.checked == 0) {

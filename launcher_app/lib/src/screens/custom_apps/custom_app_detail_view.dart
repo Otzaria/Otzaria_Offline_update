@@ -117,17 +117,16 @@ class CustomAppDetailView extends StatelessWidget {
                     : t.downloadButton,
                 icon: FluentIcons.arrow_download_20_regular,
                 isLoading: _isDownloading,
-                onPressed: controller.downloadingId != null ||
-                        controller.isDownloadingAll
-                    ? null
-                    : onDownload,
+                onPressed: controller.isDownloadActive ? null : onDownload,
               ),
             if (_canFetch)
               ActionButton.ghost(
                 text: t.checkOnlineButton,
                 icon: FluentIcons.arrow_sync_20_regular,
                 spinning: checking,
-                onPressed: checking || controller.isCheckingAll
+                onPressed: checking ||
+                        controller.isCheckingAll ||
+                        controller.isDownloadingAll
                     ? null
                     : () => unawaited(_checkOnline(context)),
               ),
@@ -183,27 +182,30 @@ class CustomAppDetailView extends StatelessWidget {
 
   Widget? _progress(BuildContext context) {
     final t = context.strings.customApps;
-    if (controller.isLearning) return InfoProgressRow(stage: t.learningLabel);
-    if (!_isDownloading) return null;
-    return ListenableBuilder(
+    final showCancel = _isDownloading || controller.isDownloadingAll;
+    if (!showCancel && !controller.isLearning) return null;
+    return Column(
       key: progressKey,
-      listenable: controller.progress,
-      builder: (context, _) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          InfoProgressRow(
-            stage: t.downloadingLabel,
-            progress: (controller.downloadTotal ?? 0) > 0
-                ? (controller.downloadReceived ?? 0) / controller.downloadTotal!
-                : null,
-            detail: formatBytesProgress(
-              controller.downloadReceived,
-              controller.downloadTotal,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_isDownloading)
+          ListenableBuilder(
+            listenable: controller.progress,
+            builder: (context, _) => InfoProgressRow(
+              stage: t.downloadingLabel,
+              progress: (controller.downloadTotal ?? 0) > 0
+                  ? (controller.downloadReceived ?? 0) /
+                      controller.downloadTotal!
+                  : null,
+              detail: formatBytesProgress(
+                controller.downloadReceived,
+                controller.downloadTotal,
+              ),
             ),
           ),
-          CustomAppCancelDownloadButton(controller: controller),
-        ],
-      ),
+        if (controller.isLearning) InfoProgressRow(stage: t.learningLabel),
+        if (showCancel) CustomAppCancelDownloadButton(controller: controller),
+      ],
     );
   }
 

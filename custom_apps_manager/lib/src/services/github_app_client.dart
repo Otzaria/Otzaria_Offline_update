@@ -29,8 +29,11 @@ class GithubAppClient {
 
   static const int _pageSize = 20;
 
-  Future<GithubRelease?> fetchLatest(GithubSource source) async {
-    final releases = await fetchReleases(source);
+  Future<GithubRelease?> fetchLatest(
+    GithubSource source, {
+    bool Function()? isCancelled,
+  }) async {
+    final releases = await fetchReleases(source, isCancelled: isCancelled);
     final pattern = source.assetPattern;
     if (pattern.isEmpty) return _newest(releases);
     final usable = [
@@ -78,12 +81,18 @@ class GithubAppClient {
     return 0;
   }
 
-  Future<List<GithubRelease>> fetchReleases(GithubSource source) async {
+  Future<List<GithubRelease>> fetchReleases(
+    GithubSource source, {
+    bool Function()? isCancelled,
+  }) async {
     final uri = Uri.parse('${source.releasesApiUrl}?per_page=$_pageSize');
     final decoded = await githubGetJson(
       _http,
       uri,
       timeout: timeout,
+      checkCancelled: isCancelled == null
+          ? null
+          : () => CustomAppDownloadCancelled.check(isCancelled),
       statusError: (status) => AppDescriptorException(
         AppL10n.strings.customAppsDomain.githubStatus(status, '$uri'),
       ),
@@ -127,9 +136,7 @@ class GithubAppClient {
       onProgress: onProgress,
       checkCancelled: isCancelled == null
           ? null
-          : () {
-              if (isCancelled()) throw const CustomAppDownloadCancelled();
-            },
+          : () => CustomAppDownloadCancelled.check(isCancelled),
       calculateSha256: true,
       statusError: (status) => AppDescriptorException(
           AppL10n.strings.customAppsDomain.downloadFailed(status)),

@@ -606,6 +606,52 @@ void main() {
       expect(leftovers, isEmpty);
     });
 
+    test('#288: ביטול עוצר גם בקשת גרסה שממתינה לכותרות', () async {
+      final pending = Completer<http.StreamedResponse>();
+      final request = Completer<http.BaseRequest>();
+      final lateBodyCancelled = Completer<void>();
+      final lateBody = StreamController<List<int>>(
+        onCancel: lateBodyCancelled.complete,
+      );
+      final m = CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1',
+        githubClient: GithubAppClient(
+          httpClient: MockClient.streaming((sent, _) {
+            request.complete(sent);
+            return pending.future;
+          }),
+        ),
+      );
+      await m.add(
+        const AppDescriptor(
+          id: 'org.example.gh',
+          name: 'gh',
+          sourceKind: AppSourceKind.github,
+          github: source,
+        ),
+      );
+
+      var cancelled = false;
+      final outcome = m
+          .downloadFromGithub('org.example.gh', isCancelled: () => cancelled)
+          .then<Object>((stored) => stored, onError: (Object error) => error);
+      final sent = await request.future;
+      expect(sent.url.host, 'api.github.com');
+      cancelled = true;
+      const bound = Duration(seconds: 2);
+      try {
+        expect(await outcome.timeout(bound), isA<CustomAppDownloadCancelled>());
+        expect(sent, isA<http.AbortableRequest>());
+        await (sent as http.AbortableRequest).abortTrigger!.timeout(bound);
+      } finally {
+        pending.complete(http.StreamedResponse(lateBody.stream, 503));
+        unawaited(lateBody.close());
+      }
+      await lateBodyCancelled.future.timeout(bound);
+      expect((await m.load('org.example.gh'))?.installer, isNull);
+    });
+
     test('#288: ביטול באמצע הזרם מוחק את הקובץ החלקי ואת מצב ההמשך', () async {
       final latest = releaseJson('v3.0', 'App-3.0.exe');
       final m = CustomAppsManager(
@@ -657,6 +703,65 @@ void main() {
           .whereType<File>()
           .where((f) => f.path.contains('App-3.0'));
       expect(leftovers, isEmpty);
+    });
+
+    test('#288: ביטול שומר רק את החלקי התקין שכבר היה לפני הניסיון', () async {
+      const name = 'App-3.0.exe';
+      final latest = releaseJson('v3.0', name);
+      const url = 'https://example.test/v3.0/$name';
+      final m = CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1',
+        githubClient: GithubAppClient(
+          httpClient: MockClient.streaming((request, _) async {
+            expect(request.url.toString(), url);
+            expect(request.headers['range'], 'bytes=5-');
+            return http.StreamedResponse(
+              Stream.value(bytes.sublist(5)),
+              206,
+              contentLength: 5,
+              headers: {'etag': '"x"', 'content-range': 'bytes 5-9/10'},
+            );
+          }),
+        ),
+      );
+      const id = 'org.example.gh';
+      await m.add(
+        const AppDescriptor(
+          id: id,
+          name: 'gh',
+          sourceKind: AppSourceKind.github,
+          github: source,
+        ),
+      );
+      final part = File(p.join(root, 'apps', id, '$name.part.part'));
+      final resume = File(p.join(root, 'apps', id, '$name.part.resume'));
+      final metadata = jsonEncode({
+        'url': url,
+        'expectedSize': 10,
+        'etag': '"x"',
+        'total': 10,
+        'headers': {'etag': '"x"'},
+      });
+      final previous = bytes.sublist(0, 5);
+      await part.writeAsBytes(previous);
+      await resume.writeAsString(metadata);
+
+      var received = 0;
+      await expectLater(
+        m.downloadFromGithub(
+          id,
+          release: GithubRelease.fromJson(latest),
+          releaseSource: source,
+          onProgress: (got, _) => received = got,
+          isCancelled: () => received > previous.length,
+        ),
+        throwsA(isA<CustomAppDownloadCancelled>()),
+      );
+      expect(received, 10);
+      expect(await part.readAsBytes(), previous);
+      expect(await resume.readAsString(), metadata);
+      expect((await m.load(id))?.installer, isNull);
     });
   });
 
