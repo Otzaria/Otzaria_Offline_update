@@ -181,101 +181,86 @@ void main() {
       final pattern = GithubAssetPattern.fromAssetName('Other-1.0.msi');
       expect(GithubAppClient.selectAsset(withAssets, pattern), isNull);
     });
+  });
 
-    final klei = GithubAssetPattern.fromAssetName(
-      'KleiKodeshSetup-v9.0.1-x64.exe',
+  group('Klei Kodesh x64 installer migration', () {
+    final kleiX64 = GithubSource(
+      owner: 'KleiKodesh',
+      repo: 'KleiKodeshProject',
+      assetPattern: GithubAssetPattern.fromAssetName(
+        'KleiKodeshSetup-v9.0.1-x64.exe',
+      ),
     );
 
-    test('ריפו שעבר למתקין אחד — תבנית x64 בוחרת אותו', () {
-      final v10 = GithubRelease.fromJson(release(
+    test('accepts the matching installer starting at v10.0.0', () {
+      final firstRelease = GithubRelease.fromJson(release(
+        'v10.0.0',
+        assets: [
+          'KitveiHakodeshPortable-v10.0.0.zip',
+          'KleiKodeshSetup-v10.0.0.exe',
+        ],
+      ));
+
+      expect(
+        GithubAppClient.selectSourceAsset(firstRelease, kleiX64)?.name,
+        'KleiKodeshSetup-v10.0.0.exe',
+      );
+    });
+
+    test('preserves the exact x64 match when both installers exist', () {
+      final withBoth = GithubRelease.fromJson(release(
         'v10.7.0',
         assets: [
-          'KitveiHakodeshPortable-v10.7.0.zip',
           'KleiKodeshSetup-v10.7.0.exe',
+          'KleiKodeshSetup-v10.7.0-x64.exe',
         ],
       ));
+
       expect(
-        GithubAppClient.selectAsset(v10, klei)?.name,
-        'KleiKodeshSetup-v10.7.0.exe',
+        GithubAppClient.selectSourceAsset(withBoth, kleiX64)?.name,
+        'KleiKodeshSetup-v10.7.0-x64.exe',
       );
     });
 
-    test('כשיש קובץ x64 הוא קודם למתקין הכללי', () {
-      final v9 = GithubRelease.fromJson(release(
-        'v9.1.4',
-        assets: [
-          'KleiKodeshSetup-v9.1.4.exe',
-          'KleiKodeshSetup-v9.1.4-x86.exe',
-          'KleiKodeshSetup-v9.1.4-x64.exe',
-        ],
-      ));
-      expect(
-        GithubAppClient.selectAsset(v9, klei)?.name,
-        'KleiKodeshSetup-v9.1.4-x64.exe',
+    test('accepts only the exact installer for the stable release tag', () {
+      final rejected = [
+        release('v9.1.4', assets: ['KleiKodeshSetup-v9.1.4.exe']),
+        release('v10.7.0',
+            prerelease: true, assets: ['KleiKodeshSetup-v10.7.0.exe']),
+        release('v10.7.0-rc.1', assets: ['KleiKodeshSetup-v10.7.0-rc.1.exe']),
+        release('v10.7.0', assets: [
+          'KleiKodeshSetup-v10.6.0.exe',
+          'KleiKodeshSetup-v10.7.0.exe.sha256',
+          'KleiKodeshSetup-v10.7.0-x86.exe',
+        ]),
+      ];
+
+      for (final json in rejected) {
+        final candidate = GithubRelease.fromJson(json);
+        expect(GithubAppClient.selectSourceAsset(candidate, kleiX64), isNull,
+            reason: candidate.tagName);
+      }
+    });
+
+    test('keeps the original pattern for a fork or an x86 choice', () {
+      final single = GithubRelease.fromJson(
+        release('v10.7.0', assets: ['KleiKodeshSetup-v10.7.0.exe']),
       );
-    });
+      final fork = GithubSource(
+        owner: 'someone',
+        repo: kleiX64.repo,
+        assetPattern: kleiX64.assetPattern,
+      );
+      final kleiX86 = GithubSource(
+        owner: kleiX64.owner,
+        repo: kleiX64.repo,
+        assetPattern: GithubAssetPattern.fromAssetName(
+          'KleiKodeshSetup-v9.0.1-x86.exe',
+        ),
+      );
 
-    test('הנפילה לא בוחרת ארכיטקטורה אחרת', () {
-      final x86Only = GithubRelease.fromJson(release(
-        'v2.0',
-        assets: ['App-2.0-x86.exe', 'App-2.0-arm64.exe'],
-      ));
-      final pattern = GithubAssetPattern.fromAssetName('App-1.0-x64.exe');
-      expect(GithubAppClient.selectAsset(x86Only, pattern), isNull);
-    });
-
-    test('קובץ בלי סיומת לצד קבצים עם ארכיטקטורה הוא x86 — אין נפילה', () {
-      // Notepad++ style: the plain name is the 32-bit build.
-      final npp = GithubRelease.fromJson(release(
-        'v8.7.0',
-        assets: ['npp.8.7.0.Installer.exe', 'npp.8.7.0.Installer.arm64.exe'],
-      ));
-      final pattern =
-          GithubAssetPattern.fromAssetName('npp.8.6.9.Installer.x64.exe');
-      expect(GithubAppClient.selectAsset(npp, pattern), isNull);
-    });
-
-    test('תבנית שנערכה ידנית אינה נופלת לתבנית שתואמת הכול', () {
-      for (final hand in [r'_x64$', r'-x64\.exe$', r'^-x64\.exe$']) {
-        expect(GithubAssetPattern.withoutArchitecture(hand), isNull,
-            reason: hand);
-      }
-    });
-
-    test('namesArchitecture: מזהה ארכיטקטורה בשם קובץ', () {
-      for (final name in [
-        'App-1.0-x64.exe',
-        'App_x86_64.msi',
-        'npp.8.7.0.Installer.arm64.exe',
-        'App Setup (x86).exe',
-        'x64-App.exe',
-        'App-1.0-64bit.exe',
-      ]) {
-        expect(GithubAssetPattern.namesArchitecture(name), isTrue,
-            reason: name);
-      }
-      for (final name in [
-        'KleiKodeshSetup-v10.7.0.exe',
-        'KitveiHakodeshPortable-v10.7.0.zip',
-        'Box64-1.0.exe',
-      ]) {
-        expect(GithubAssetPattern.namesArchitecture(name), isFalse,
-            reason: name);
-      }
-    });
-
-    test('withoutArchitecture: מסיר רק את מציין הארכיטקטורה', () {
-      String? neutral(String name) => GithubAssetPattern.withoutArchitecture(
-            GithubAssetPattern.fromAssetName(name),
-          );
-      expect(neutral('KleiKodeshSetup-v9.0.1-x64.exe'),
-          r'^KleiKodeshSetup-v\d+\.\d+\.\d+\.exe$');
-      expect(neutral('Foo.Setup.1.0.x64.exe'), r'^Foo\.Setup\.\d+\.\d+\.exe$');
-      expect(neutral('App Setup 1.2 (x64).exe'), r'^App Setup \d+\.\d+\.exe$');
-      expect(neutral('app_arm64_setup-1.0.exe'), r'^app_setup-\d+\.\d+\.exe$');
-      expect(neutral('App-1.0.exe'), isNull);
-      expect(
-          neutral('Box64-1.0.exe'), isNull); // part of the name, no separator
+      expect(GithubAppClient.selectSourceAsset(single, fork), isNull);
+      expect(GithubAppClient.selectSourceAsset(single, kleiX86), isNull);
     });
   });
 

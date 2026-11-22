@@ -452,14 +452,13 @@ class CustomAppsManager {
     }
 
     var latest = releaseSource == source ? release : null;
-    var asset =
-        latest == null ? null : _usableAsset(latest, source.assetPattern);
+    var asset = latest == null ? null : _usableAsset(latest, source);
     if (latest == null || asset == null) {
       latest =
           await peekLatestOnline(entry.descriptor, isCancelled: isCancelled);
       CustomAppDownloadCancelled.check(isCancelled);
       if (latest == null) throw AppDescriptorException(t.githubNoReleases);
-      asset = _usableAsset(latest, source.assetPattern);
+      asset = _usableAsset(latest, source);
       if (asset == null) {
         throw AppDescriptorException(t.githubNoMatchingAsset(latest.tagName));
       }
@@ -515,8 +514,8 @@ class CustomAppsManager {
     } on FileSystemException catch (_) {}
   }
 
-  static GithubAsset? _usableAsset(GithubRelease release, String pattern) {
-    final asset = GithubAppClient.selectAsset(release, pattern);
+  static GithubAsset? _usableAsset(GithubRelease release, GithubSource source) {
+    final asset = GithubAppClient.selectSourceAsset(release, source);
     if (asset == null || safeFileName(asset.name) == null) return null;
     return asset;
   }
