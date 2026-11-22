@@ -16,7 +16,9 @@ List<int> pluginBytes(
   final archive = Archive()
     ..addFile(ArchiveFile(entryName, content.length, content))
     ..addFile(ArchiveFile('main.js', 3, utf8.encode('/**')));
-  return ZipEncoder().encode(archive);
+  // Fixed time: entries default to "now", so two builds across a 2-second
+  // boundary differ byte-for-byte and byte comparisons flake.
+  return ZipEncoder().encode(archive, modified: DateTime(2024));
 }
 
 String writePluginFile(Directory dir, String name, String manifestText) {
