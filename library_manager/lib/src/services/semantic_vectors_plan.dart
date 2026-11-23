@@ -113,6 +113,7 @@ class SemanticMachineState {
     this.identityDigest = '',
     this.needsBase = false,
     this.generation = SemanticModelGeneration.round2,
+    this.setGeneration,
   });
 
   final bool supportsWindows;
@@ -130,6 +131,9 @@ class SemanticMachineState {
   /// machine is never served by guesswork and never deleted.
   final SemanticModelGeneration? generation;
 
+  /// The generation the installed set was built for; `null` = not recorded.
+  final SemanticModelGeneration? setGeneration;
+
   Map<String, Object?> toJson() => {
     'supportsWindows': supportsWindows,
     'family': family?.id ?? 'none',
@@ -137,6 +141,7 @@ class SemanticMachineState {
     'identityDigest': identityDigest,
     'needsBase': needsBase,
     'generation': generation?.id ?? 'unknown',
+    'setGeneration': ?setGeneration?.id,
   };
 
   static SemanticMachineState? fromJson(Object? json) {
@@ -155,6 +160,7 @@ class SemanticMachineState {
       identityDigest: json['identityDigest'] as String,
       needsBase: json['needsBase'] == true,
       generation: SemanticModelGeneration.byId(json['generation']),
+      setGeneration: SemanticModelGeneration.byId(json['setGeneration']),
     );
   }
 }
@@ -194,6 +200,18 @@ class SemanticFleet {
       _known.isNotEmpty && _known.every((m) => m.supportsWindows)
       ? SemanticVectorsFamily.windows
       : SemanticVectorsFamily.legacy;
+
+  /// Every machine stays on a windows set of the generation it reads and so
+  /// never installs the anchor set (as `_keepsWindowsSet` decides there).
+  bool get keepsWindowsSets =>
+      machines.isNotEmpty &&
+      machines.every(
+        (m) =>
+            m.supportsWindows &&
+            m.family == SemanticVectorsFamily.windows &&
+            m.generation != null &&
+            m.setGeneration == m.generation,
+      );
 
   /// One anchor base serves a generation's anchor-only machines and every
   /// windows-capable machine not on a windows set; machines on a windows set

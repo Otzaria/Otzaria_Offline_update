@@ -924,6 +924,9 @@ class SemanticSearchAssets {
         }
         return (meta: _metaOf(family, generation, base), remotes: [base]);
       }
+      if (release == null && !windowsInvalid && fleet.keepsWindowsSets) {
+        throw SemanticNotPublishedException(version);
+      }
     }
     const family = SemanticVectorsFamily.legacy;
     final _Release? release;
@@ -1292,6 +1295,10 @@ class SemanticSearchAssets {
         _peekedPendingBytes = 0;
         return false;
       }
+      if (!windowsPresent && fleet.keepsWindowsSets) {
+        _groupNotPublished = true;
+        return false;
+      }
     }
     final _Release? fetched;
     try {
@@ -1448,6 +1455,8 @@ class SemanticSearchAssets {
     // A generation with nothing to mirror yet does not stop the others.
     (Object, StackTrace)? unserved;
     final skipped = <SemanticModelGeneration>{};
+    final keepsWindows = <SemanticModelGeneration>{};
+    final readsLegacy = <SemanticModelGeneration>{};
     for (var i = 0; i < groups.length; i++) {
       final group = groups[i];
       ({_Meta meta, List<_Remote> remotes})? found;
@@ -1473,6 +1482,9 @@ class SemanticSearchAssets {
         unserved ??=
             fault ?? (_failure(HttpStatus.notFound), StackTrace.current);
         skipped.add(group.generation);
+        (group.keepsWindowsSets ? keepsWindows : readsLegacy).add(
+          group.generation,
+        );
         continue;
       }
       plans.removeWhere(
@@ -1491,6 +1503,10 @@ class SemanticSearchAssets {
         (m) =>
             m.libraryTag == libraryTag &&
             skipped.contains(m.generation) &&
+            // A legacy base serves no machine that keeps its windows set.
+            !(!m.windows &&
+                keepsWindows.contains(m.generation) &&
+                !readsLegacy.contains(m.generation)) &&
             !plans.any(
               (p) => p.generation == m.generation && p.family == m.family,
             ),
