@@ -289,6 +289,10 @@ void main() {
             (await store.loadOwnSemanticState())?.needsBase,
             scenario.corrupt,
           );
+          expect(
+            (await store.loadOwnSemanticState())?.setGeneration,
+            SemanticModelGeneration.round2,
+          );
           expect(engine.installs, isEmpty);
           expect(
             engine.verifications,
@@ -300,6 +304,237 @@ void main() {
       }
     });
   }
+
+  group('windows set missing for the version, only legacy published', () {
+    const onWindowsSet = SemanticMachineState(
+      supportsWindows: true,
+      family: SemanticVectorsFamily.windows,
+      libraryVersion: 29,
+      identityDigest: identityA,
+      setGeneration: SemanticModelGeneration.round2,
+    );
+
+    Future<SemanticSearchAssets> assetsFor(FakeVectorsGithub github) async {
+      addTearDown(github.client.close);
+      final assets = SemanticSearchAssets(
+        httpClient: github.client,
+        models: fakeModels,
+        specs: fakeSpecs,
+      );
+      addTearDown(assets.dispose);
+      return assets;
+    }
+
+    test('machines that keep their windows set download nothing', () async {
+      final github = FakeVectorsGithub()..legacyBase(30);
+      final assets = await assetsFor(github);
+      final mirror = p.join(temp.path, 'mirror');
+      const fleet = SemanticFleet([onWindowsSet]);
+
+      final pending = await assets.peekPending(
+        mirrorDir: mirror,
+        libraryTag: libraryTagOf(30),
+        fleet: fleet,
+      );
+      expect(pending, isFalse);
+      expect(assets.peekedNotPublished, 30);
+
+      await expectLater(
+        assets.sync(
+          mirrorDir: mirror,
+          libraryTag: libraryTagOf(30),
+          fleet: fleet,
+        ),
+        throwsA(isA<SemanticNotPublishedException>()),
+      );
+      expect(github.downloads, isEmpty);
+    });
+
+    for (final (name, other) in [
+      (
+        'an anchor-only machine',
+        const SemanticMachineState(
+          supportsWindows: false,
+          family: SemanticVectorsFamily.legacy,
+          libraryVersion: 29,
+        ),
+      ),
+      (
+        'a windows-capable machine on the anchor set',
+        const SemanticMachineState(
+          supportsWindows: true,
+          family: SemanticVectorsFamily.legacy,
+          libraryVersion: 29,
+          setGeneration: SemanticModelGeneration.round2,
+        ),
+      ),
+      (
+        'a windows set of another generation',
+        const SemanticMachineState(
+          supportsWindows: true,
+          family: SemanticVectorsFamily.windows,
+          libraryVersion: 29,
+          identityDigest: identityA,
+          setGeneration: SemanticModelGeneration.qa491,
+        ),
+      ),
+      (
+        'a record that names no set generation',
+        const SemanticMachineState(
+          supportsWindows: true,
+          family: SemanticVectorsFamily.windows,
+          libraryVersion: 29,
+          identityDigest: identityA,
+        ),
+      ),
+    ]) {
+      test('$name still gets the legacy base', () async {
+        final github = FakeVectorsGithub()..legacyBase(30);
+        final assets = await assetsFor(github);
+        final mirror = p.join(temp.path, 'mirror');
+        final fleet = SemanticFleet([onWindowsSet, other]);
+
+        expect(
+          await assets.peekPending(
+            mirrorDir: mirror,
+            libraryTag: libraryTagOf(30),
+            fleet: fleet,
+          ),
+          isTrue,
+        );
+        await assets.sync(
+          mirrorDir: mirror,
+          libraryTag: libraryTagOf(30),
+          fleet: fleet,
+        );
+        expect(github.downloads, contains(legacyManifestName(30)));
+      });
+    }
+
+    test(
+      'a legacy base held for them does not block another generation',
+      () async {
+        final github = FakeVectorsGithub()
+          ..legacyBase(30)
+          ..qa491Base(30);
+        final assets = await assetsFor(github);
+        final mirror = p.join(temp.path, 'mirror');
+        await assets.sync(
+          mirrorDir: mirror,
+          libraryTag: libraryTagOf(30),
+          fleet: const SemanticFleet([
+            onWindowsSet,
+            SemanticMachineState(
+              supportsWindows: false,
+              family: SemanticVectorsFamily.legacy,
+              libraryVersion: 29,
+            ),
+          ]),
+        );
+        expect(github.downloads, contains(legacyManifestName(30)));
+
+        await assets.sync(
+          mirrorDir: mirror,
+          libraryTag: libraryTagOf(30),
+          fleet: const SemanticFleet([
+            onWindowsSet,
+            SemanticMachineState(
+              supportsWindows: false,
+              family: SemanticVectorsFamily.legacy,
+              libraryVersion: 29,
+              generation: SemanticModelGeneration.qa491,
+            ),
+          ]),
+        );
+        expect(
+          github.downloads,
+          contains('otzaria-vectors-qa491a-v30-base.manifest.json'),
+        );
+      },
+    );
+
+    test('a windows base held for them is kept', () async {
+      final mirror = p.join(temp.path, 'mirror');
+      const fleet = SemanticFleet([
+        onWindowsSet,
+        SemanticMachineState(
+          supportsWindows: false,
+          family: SemanticVectorsFamily.legacy,
+          libraryVersion: 29,
+          generation: SemanticModelGeneration.qa491,
+        ),
+      ]);
+      final before = await assetsFor(
+        FakeVectorsGithub()
+          ..windowsBase(30)
+          ..qa491Base(30),
+      );
+      await before.sync(
+        mirrorDir: mirror,
+        libraryTag: libraryTagOf(30),
+        fleet: fleet,
+      );
+      final metadata = File(
+        p.join(mirror, SemanticSearchAssets.manifestFileName),
+      );
+      final held = await metadata.readAsString();
+      expect(held, contains('"windows"'));
+
+      final after = await assetsFor(FakeVectorsGithub()..qa491Base(30));
+      await expectLater(
+        after.sync(
+          mirrorDir: mirror,
+          libraryTag: libraryTagOf(30),
+          fleet: fleet,
+        ),
+        throwsA(isA<SemanticNotPublishedException>()),
+      );
+      expect(await metadata.readAsString(), held);
+    });
+
+    test('a legacy base still read by an unserved peer is kept', () async {
+      final mirror = p.join(temp.path, 'mirror');
+      const fleet = SemanticFleet([
+        onWindowsSet,
+        SemanticMachineState(
+          supportsWindows: false,
+          family: SemanticVectorsFamily.legacy,
+          libraryVersion: 29,
+        ),
+        SemanticMachineState(
+          supportsWindows: false,
+          family: SemanticVectorsFamily.legacy,
+          libraryVersion: 29,
+          generation: SemanticModelGeneration.qa491,
+        ),
+      ]);
+      final before = await assetsFor(
+        FakeVectorsGithub()
+          ..legacyBase(30)
+          ..qa491Base(30),
+      );
+      await before.sync(
+        mirrorDir: mirror,
+        libraryTag: libraryTagOf(30),
+        fleet: fleet,
+      );
+      final metadata = File(
+        p.join(mirror, SemanticSearchAssets.manifestFileName),
+      );
+      final held = await metadata.readAsString();
+
+      final after = await assetsFor(FakeVectorsGithub()..qa491Base(30));
+      await expectLater(
+        after.sync(
+          mirrorDir: mirror,
+          libraryTag: libraryTagOf(30),
+          fleet: fleet,
+        ),
+        throwsA(isA<SemanticNotPublishedException>()),
+      );
+      expect(await metadata.readAsString(), held);
+    });
+  });
 
   for (final settings in [null, const OtzariaSettings()]) {
     test(
