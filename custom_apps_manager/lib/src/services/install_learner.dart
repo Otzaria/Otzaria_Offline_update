@@ -236,34 +236,60 @@ class InstallLearner {
     return (fresh, changed);
   }
 
+  /// שתי השכבות החלשות (השתנה / קיים) לא בוחרות כשהרמז המכריע תופס כמה
+  /// רישומים: התאמה עמומה אינה נבחרת אוטומטית. מפתח שנולד אינו עובר כאן.
   static UninstallEntry? _pickWeak(
     List<UninstallEntry> now,
     List<UninstallEntry> fresh,
     List<UninstallEntry> changed,
     List<String> hints,
-  ) =>
-      _matchByHints(changed, hints) ??
-      _matchByHints(now, hints) ??
-      (fresh.length == 1 ? fresh.single : null);
+  ) {
+    // "אוצריא" אינה זהות בשכבות החלשות; מפתח שנולד כן מקבל אותה כרמז.
+    final identityHints = [
+      for (final hint in hints)
+        if (!_ecosystemToken.hasMatch(hint)) hint,
+    ];
+    for (final layer in [changed, now]) {
+      final matches = _hintMatches(layer, identityHints);
+      if (matches.isNotEmpty) {
+        return _distinctApps(matches) == 1 ? matches.first : null;
+      }
+    }
+    return fresh.length == 1 ? fresh.single : null;
+  }
+
+  // אותה תוכנה תחת שני מפתחות (תצוגות 32/64 של MSI) אינה עמימות.
+  static int _distinctApps(List<UninstallEntry> entries) => {
+        for (final e in entries)
+          '${normalize(e.displayName)}|${e.installDir?.toLowerCase()}',
+      }.length;
 
   static UninstallEntry? _matchByHints(
     List<UninstallEntry> candidates,
     List<String> hints,
+  ) =>
+      _hintMatches(candidates, hints).firstOrNull;
+
+  /// כל הרישומים שתואמים לרמז הארוך ביותר שתפס משהו, לפי סדר הרשימה.
+  static List<UninstallEntry> _hintMatches(
+    List<UninstallEntry> candidates,
+    List<String> hints,
   ) {
-    if (candidates.isEmpty) return null;
+    if (candidates.isEmpty) return const [];
     final ordered = [...hints]..sort((a, b) => b.length.compareTo(a.length));
 
     for (final hint in ordered) {
-      for (final entry in candidates) {
-        final name = normalize(entry.displayName);
-        if (name.isEmpty) continue;
-        if (name.contains(hint) || _namePrefixesHint(name, hint)) {
-          return entry;
-        }
-      }
+      final matches = [
+        for (final entry in candidates)
+          if (_matchesHint(normalize(entry.displayName), hint)) entry,
+      ];
+      if (matches.isNotEmpty) return matches;
     }
-    return null;
+    return const [];
   }
+
+  static bool _matchesHint(String name, String hint) =>
+      name.isNotEmpty && (name.contains(hint) || _namePrefixesHint(name, hint));
 
   static bool _namePrefixesHint(String name, String hint) =>
       name.length >= _minTokenLength &&
@@ -313,6 +339,11 @@ class InstallLearner {
 
   // בשם המתקין אלה פרטי פלטפורמה ואריזה; בשם התוכנה או הריפו הם עשויים לזהות אותה.
   static const Set<String> _installerNoiseTokens = {'windows', 'nsis'};
+
+  /// "אוצריא" / "otzaria", גם עם קידומות עבריות (ל, ש, ה, ו, ב, מ, כ): כמעט
+  /// כל תוכנה כאן היא "לאוצריא", ולכן זו אינה זהות ("שלאוצריא" מכיל "לאוצריא").
+  static final RegExp _ecosystemToken =
+      RegExp(r'^[לשהובמכ]{0,3}(?:otzaria|אוצריא)$', unicode: true);
 
   /// כל מה שאינו אות או ספרה, בכל שפה.
   ///

@@ -541,4 +541,129 @@ void main() {
     );
     expect(started, 1);
   });
+
+  group('"אוצריא" אינה זהות — מאגר נוסף לאוצריא', () {
+    final existing = [
+      entry('{VOICE}', 'שירות הדיבור של אוצריא 1.2',
+          installDir: r'C:\OtzariaVoice'),
+      entry('{BARILAN}', 'שירות בר אילן לאוצריא 3.0',
+          installDir: r'C:\BarIlan'),
+      entry('{OTZ}', 'אוצריא גירסה 0.9.98', installDir: r'C:\Otzaria'),
+    ];
+    final booksApp = descriptor(name: 'מאגר נוסף לאוצריא');
+    const installer = 'BooksOfflineUpdate.exe';
+
+    test('שם אקוסיסטמה בלבד אינו רמז בשכבות החלשות, גם עם קידומת', () {
+      for (final noise in ['אוצריא', 'לאוצריא', 'שלאוצריא', 'Otzaria']) {
+        expect(
+          InstallLearner.pickEntry(
+            existing,
+            existing,
+            InstallLearner.nameHintsFor(name: noise),
+          ),
+          isNull,
+          reason: noise,
+        );
+      }
+    });
+
+    test('בלי מפתח חדש — לא נלמד כלום מרישומים של תוכנות אחרות', () async {
+      final learned = await learnerWith(
+        rounds: [existing],
+        exe: 'otzaria-voice.exe',
+      ).learn(
+        descriptor: booksApp,
+        before: existing,
+        installerFileName: installer,
+      );
+      expect(learned.rules, isNull);
+      expect(learned.installDir, isNull);
+    });
+
+    test('מפתח חדש עם שם התוכנה נלמד', () async {
+      final now = [
+        ...existing,
+        entry('{BOOKS}', 'Books Offline Update - מאגר ספרים לא רשמי',
+            installDir: r'C:\Books'),
+      ];
+      final learned = await learnerWith(
+        rounds: [now],
+        exe: 'BooksOfflineUpdate.exe',
+      ).learn(
+        descriptor: booksApp,
+        before: existing,
+        installerFileName: installer,
+      );
+      expect(learned.rules!.exeName, 'BooksOfflineUpdate.exe');
+      expect(learned.installDir, r'C:\Books');
+      expect(
+        RegistryDisplayNamePattern.matches(
+          learned.rules!.registryDisplayName!,
+          'Books Offline Update - מאגר ספרים לא רשמי',
+        ),
+        isTrue,
+      );
+    });
+
+    test('התאמה עמומה בשכבות החלשות אינה נבחרת', () {
+      final before = [
+        entry('{A}', 'Acme Tool 1.0', installDir: r'C:\A'),
+        entry('{B}', 'Acme Tool Helper 1.0', installDir: r'C:\B'),
+      ];
+      final hints = InstallLearner.nameHintsFor(name: 'Acme');
+
+      expect(InstallLearner.pickEntry(before, before, hints), isNull);
+
+      final changed = [
+        entry('{A}', 'Acme Tool 2.0', installDir: r'C:\A'),
+        entry('{B}', 'Acme Tool Helper 2.0', installDir: r'C:\B'),
+      ];
+      expect(InstallLearner.pickEntry(changed, before, hints), isNull);
+    });
+
+    test('אותה תוכנה תחת שני מפתחות (32/64) אינה עמימות', () {
+      final before = [
+        entry('{A64}', 'Acme Tool 1.0', installDir: r'C:\Acme'),
+        entry('{A32}', 'Acme Tool 1.0', installDir: r'c:\acme'),
+        entry('{X}', 'Other 1.0'),
+      ];
+      final picked = InstallLearner.pickEntry(
+        before,
+        before,
+        InstallLearner.nameHintsFor(name: 'Acme'),
+      );
+      expect(picked?.installDir, r'C:\Acme');
+    });
+
+    test('אותו שם בתיקיות שונות נשאר עמום', () {
+      final before = [
+        entry('{A}', 'Acme Tool 1.0', installDir: r'C:\A'),
+        entry('{B}', 'Acme Tool 1.0', installDir: r'C:\B'),
+      ];
+      expect(
+        InstallLearner.pickEntry(
+          before,
+          before,
+          InstallLearner.nameHintsFor(name: 'Acme'),
+        ),
+        isNull,
+      );
+    });
+
+    test('התאמת שם בודדת עדיין נבחרת בשכבה 3', () {
+      final before = [
+        entry('{A}', 'Acme Tool 1.0', installDir: r'C:\A'),
+        entry('{X}', 'Other 1.0'),
+      ];
+      expect(
+        InstallLearner.pickEntry(
+          before,
+          before,
+          InstallLearner.nameHintsFor(name: 'Acme'),
+        )!
+            .keyName,
+        '{A}',
+      );
+    });
+  });
 }
