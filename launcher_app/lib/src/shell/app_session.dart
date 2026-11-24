@@ -1207,6 +1207,23 @@ class AppSession extends ChangeNotifier {
   Future<void> launcherFirst(AfterLauncherUpdate then) async {
     if (_launcherFirstThen != null || !isActive) return;
     final c = _launcherUpdate;
+    // בדיקה שנכשלה בעלייה או ישנה אינה הוכחה שאין גרסה חדשה — כמו בשאר הרכיבים.
+    if (then == AfterLauncherUpdate.download &&
+        !readOnly &&
+        !c.isDownloading &&
+        !(c.hasUpdateReady && c.canInstall) &&
+        OnlineCheckStamp(
+          checkedAt: c.onlineCheckedAt,
+          error: c.onlineCheckError,
+        ).needsRefresh()) {
+      _update(() => _launcherFirstThen = then);
+      try {
+        await c.checkOnline();
+      } finally {
+        if (isActive) _update(() => _launcherFirstThen = null);
+      }
+      if (!isActive || _closing) return;
+    }
     final Future<void> Function()? update = readOnly || c.isDownloading
         ? null
         : c.hasUpdateReady && c.canInstall

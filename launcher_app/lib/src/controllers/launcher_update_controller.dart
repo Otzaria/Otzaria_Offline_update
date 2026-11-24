@@ -114,21 +114,30 @@ class LauncherUpdateController extends ChangeNotifier
     );
   }
 
+  int _onlineCheckGeneration = 0;
+
   /// בדיקה קלה ברשת. כשל (בעיקר "אין חיבור") הוא מצב תקין ונשמר בשקט, בדיוק
   /// כמו במודולים האחרים — בדיקה אוטומטית לא מציגה שגיאה כשאין רשת.
   Future<void> checkOnline() async {
+    final generation = ++_onlineCheckGeneration;
     // הכשל הקודם נשאר עד התשובה החדשה, כדי ששורת המצב לא תאמר "מחובר" באמצע.
     notifyListeners();
 
     try {
-      onlineRelease = await _updater.peekLatestOnline();
+      final found = await _updater.peekLatestOnline();
+      // בדיקה חדשה יותר כבר רצה — תשובה ישנה אינה דורסת אותה.
+      if (generation != _onlineCheckGeneration) return;
+      onlineRelease = found;
       // בקשה נוספת רק כשיש מה להציע — היומן מוצג בדיאלוג ההצעה.
       final online = onlineRelease;
       if (online != null && hasOnlineUpdate) {
-        onlineRelease = await _updater.withChangelog(online);
+        final withNotes = await _updater.withChangelog(online);
+        if (generation != _onlineCheckGeneration) return;
+        onlineRelease = withNotes;
       }
       onlineCheckError = null;
     } catch (e) {
+      if (generation != _onlineCheckGeneration) return;
       onlineRelease = null;
       onlineCheckError = e.toString();
       // ראו `LibraryModuleController.checkOnline` — בלי stack trace בכוונה.

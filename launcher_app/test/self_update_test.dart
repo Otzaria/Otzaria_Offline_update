@@ -1204,6 +1204,23 @@ void main() {
       return made;
     }
 
+    test('כשל בשליפת היומן מחזיר את הגרסה כמות שהיא', () async {
+      final client = MockClient((_) async => throw const SocketException('x'));
+      final made = LauncherSelfUpdater(
+        dataDir: temp.path,
+        httpClient: client,
+        releaseClient: LauncherReleaseClient(
+          httpClient: client,
+          operatingSystem: 'windows',
+        ),
+        resolveLayout: false,
+      );
+      addTearDown(made.dispose);
+
+      final release = _release();
+      expect(await made.withChangelog(release), same(release));
+    });
+
     test('בדיקה מקומית על תיקייה ריקה: אין עדכון, ואין זריקה', () async {
       final check = await updater().checkForUpdate();
 
@@ -1269,6 +1286,23 @@ void main() {
 
         expect(await controller.install(), isFalse);
         expect(controller.needsElevation, isTrue);
+      });
+
+      test('בדיקה ישנה שמסתיימת אחרי חדשה אינה דורסת אותה', () async {
+        final updater = _PeekQueueUpdater();
+        final controller =
+            LauncherUpdateController(dataDir: temp.path, updater: updater);
+        addTearDown(controller.dispose);
+
+        final startup = controller.checkOnline();
+        final later = controller.checkOnline();
+        updater.peeks[1].complete(_release());
+        await later;
+        updater.peeks[0].completeError(Exception('offline'));
+        await startup;
+
+        expect(controller.hasOnlineUpdate, isTrue);
+        expect(controller.onlineCheckError, isNull);
       });
 
       test('גרסה ותיקה במראה אינה מסתירה שהגרסה שברשת כבר רצה', () {
@@ -1499,6 +1533,30 @@ class _NoRestartInstaller extends LauncherSelfInstaller {
 
   @override
   Future<void> cleanupLeftovers(LauncherInstallLayout layout) async {}
+}
+
+class _PeekQueueUpdater implements LauncherSelfUpdater {
+  final peeks = <Completer<LauncherRelease?>>[];
+
+  @override
+  Future<LauncherRelease?> peekLatestOnline() {
+    final c = Completer<LauncherRelease?>();
+    peeks.add(c);
+    return c.future;
+  }
+
+  @override
+  Future<LauncherRelease> withChangelog(LauncherRelease release) async =>
+      release;
+
+  @override
+  void dispose() {}
+
+  @override
+  String get currentVersion => launcherVersion;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _DeniedUpdater implements LauncherSelfUpdater {

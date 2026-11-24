@@ -20,7 +20,7 @@ import 'package:launcher_app/src/controllers/search_feedback_controller.dart';
 import 'package:launcher_app/src/screens/home/home_view_model.dart';
 import 'package:launcher_app/src/self_update/launcher_release.dart';
 import 'package:launcher_app/src/self_update/launcher_release_client.dart'
-    show LauncherDownloadCancelled;
+    show LauncherDownloadCancelled, LauncherUpdateException;
 import 'package:launcher_app/src/self_update/launcher_self_updater.dart';
 import 'package:launcher_app/src/self_update/launcher_update_mirror.dart'
     show MirroredLauncherRelease;
@@ -1735,6 +1735,74 @@ void main() {
         expect(marker().existsSync(), isFalse);
       });
 
+      test('בדיקת הכלי שנכשלה בעלייה נבדקת שוב לפני ההורדה', () async {
+        final launcher = _SteppedLauncher()
+          ..ready = null
+          ..online = 'v9.0.0'
+          ..peekFailures = 1;
+        final s = await started(launcher);
+        await s.launcherUpdate.checkOnline();
+        expect(s.launcherUpdate.onlineCheckError, isNotNull);
+        expect(s.launcherUpdate.hasOnlineUpdate, isFalse);
+        launcher.gate.complete();
+        prompts.launcherInstallAnswer = false;
+        await s.launcherFirst(AfterLauncherUpdate.download);
+        expect(launcher.calls, contains('downloaded'));
+      });
+
+      test('גרסה שכבר מוכנה להתקנה — אין בדיקה חוזרת ברשת', () async {
+        final launcher = _SteppedLauncher();
+        final s = await started(launcher);
+        final before = launcher.peeks;
+        prompts.launcherInstallAnswer = false;
+        await s.launcherFirst(AfterLauncherUpdate.download);
+        expect(launcher.peeks, before);
+        expect(prompts.calls, contains('confirmLauncherInstall'));
+      });
+
+      test('בדיקה טרייה שהצליחה — אין בדיקה חוזרת', () async {
+        final launcher = _SteppedLauncher()
+          ..ready = null
+          ..online = 'v9.0.0';
+        final s = await started(launcher);
+        await s.launcherUpdate.checkOnline();
+        expect(s.launcherUpdate.hasOnlineUpdate, isTrue);
+        final before = launcher.peeks;
+        launcher.gate.complete();
+        prompts.launcherInstallAnswer = false;
+        await s.launcherFirst(AfterLauncherUpdate.download);
+        expect(launcher.peeks, before);
+        expect(launcher.calls, contains('downloaded'));
+      });
+
+      test('כונן מוגן — אין בדיקה חוזרת ברשת', () async {
+        await settings.update(settings.settings.copyWith(
+          syncApp: false,
+          syncLibrary: false,
+          syncPlugins: false,
+        ));
+        final launcher = _SteppedLauncher()
+          ..ready = null
+          ..online = 'v9.0.0';
+        final s = session(launcherUpdater: launcher, readOnly: true)..start();
+        await settled(s);
+        await s.launcherFirst(AfterLauncherUpdate.download);
+        expect(launcher.peeks, 0);
+        expect(launcher.calls, isNot(contains('download')));
+      });
+
+      test('עדכון במחשב הזה אינו בודק את הכלי ברשת', () async {
+        final launcher = _SteppedLauncher()
+          ..ready = null
+          ..online = 'v9.0.0'
+          ..peekFailures = 1;
+        final s = await started(launcher);
+        final before = launcher.peeks;
+        await s.launcherFirst(AfterLauncherUpdate.updateHere);
+        expect(launcher.peeks, before);
+        expect(launcher.calls, isNot(contains('download')));
+      });
+
       for (final then in AfterLauncherUpdate.values) {
         test('סגירה בזמן שאלת העלייה מבטלת המשך ${then.name}', () async {
           await settings.update(settings.settings.copyWith(
@@ -2924,9 +2992,19 @@ class _SteppedLauncher implements LauncherSelfUpdater {
   /// גרסה שבאתר ועוד לא ירדה — `launcherFirst` מוריד אותה לפני ההתקנה.
   String? online;
 
+  /// כמה בדיקות ראשונות ברשת ייכשלו, ואיתן ספירת הבדיקות.
+  int peekFailures = 0;
+  int peeks = 0;
+
   @override
-  Future<LauncherRelease?> peekLatestOnline() async =>
-      online == null ? null : _release(online!);
+  Future<LauncherRelease?> peekLatestOnline() async {
+    peeks++;
+    if (peekFailures > 0) {
+      peekFailures--;
+      throw const LauncherUpdateException('offline');
+    }
+    return online == null ? null : _release(online!);
+  }
 
   @override
   Future<LauncherRelease> withChangelog(LauncherRelease release) async =>
