@@ -480,6 +480,56 @@ void main() {
       },
     );
 
+    test('כל תוסף שירד מדווח את הבתים שירדו לו ואת משך ההורדה', () async {
+      final events = <PluginSyncProgress>[];
+      final site = _Site(
+        plugins: _Site.defaultPlugins(
+          screenshots: ['/api/plugins/a/s0', '/api/plugins/a/s1'],
+        ),
+      );
+      final catalog = await sync(site, events: events);
+
+      final finished = {
+        for (final e in events)
+          if (e.phase == PluginSyncPhase.pluginFinished) e.message: e,
+      };
+      int buildSize(String id) => catalog.plugins
+          .firstWhere((x) => x.id == id)
+          .localFiles
+          .values
+          .single
+          .size;
+      const pngSize = 8;
+      expect(finished.keys, unorderedEquals(['אלף', 'בית']));
+      expect(finished['אלף']!.bytes, buildSize('a') + 3 * pngSize);
+      expect(finished['בית']!.bytes, buildSize('b'));
+      expect(finished.values.every((e) => e.elapsed != null), isTrue);
+      expect(finished.values.every((e) => e.fraction == null), isTrue);
+
+      final again = <PluginSyncProgress>[];
+      await sync(site, events: again);
+      expect(
+        again.where((e) => e.phase == PluginSyncPhase.pluginFinished),
+        isEmpty,
+      );
+    });
+
+    test('סנכרון שבוטל באמצע אינו מדווח זמנים של תוספים חלקיים', () async {
+      final events = <PluginSyncProgress>[];
+      var cancelled = false;
+      await manager(_Site()).sync(
+        onProgress: (e) {
+          events.add(e);
+          if (e.phase == PluginSyncPhase.plugin) cancelled = true;
+        },
+        isCancelled: () => cancelled,
+      );
+      expect(
+        events.where((e) => e.phase == PluginSyncPhase.pluginFinished),
+        isEmpty,
+      );
+    });
+
     test('דף קטגוריה שנופל שומר את החברות הקודמת מהמראה', () async {
       await sync(_Site());
 

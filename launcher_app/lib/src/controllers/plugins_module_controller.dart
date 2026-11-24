@@ -11,6 +11,7 @@ import 'package:otzaria_manager/otzaria_manager.dart'
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../services/app_logger.dart';
+import '../services/byte_size.dart';
 import '../services/coalescing_loader.dart';
 import '../services/known_plugins_store.dart';
 import '../services/storage_failure.dart';
@@ -58,6 +59,21 @@ typedef PluginUpdateAllOutcome = ({
 enum PluginInstallFilter { all, newOnes, installed, notInstalled }
 
 enum PluginSortMode { recommended, newest, updated }
+
+/// שורת יומן לתוסף שסונכרן — כדי שדיווח על איטיות יראה איפה הזמן הלך.
+@visibleForTesting
+String pluginTimingLine(String name, int bytes, Duration elapsed) =>
+    'תוסף $name: ${pluginTimingSummary(bytes, elapsed)}';
+
+@visibleForTesting
+String pluginTimingSummary(int bytes, Duration elapsed) {
+  final seconds = elapsed.inMilliseconds / 1000;
+  final rate =
+      seconds > 0 && bytes > 0 ? ' (${formatRate(bytes / seconds)})' : '';
+  return withoutBidiMarks(
+    '${formatBytes(bytes)} ב־${seconds.toStringAsFixed(1)} שנ׳$rate',
+  );
+}
 
 /// המרווח בין שתי מסירות רצופות של עדכוני תוספים.
 ///
@@ -724,11 +740,24 @@ class PluginsModuleController extends ChangeNotifier
     await Future<void>.value();
     notifyListeners();
 
+    final clock = Stopwatch()..start();
+    var syncedBytes = 0;
     try {
       final outcome = await _manager.sync(
         appVersions: await _appVersions(),
         isCancelled: isCancelled,
         onProgress: (progress) {
+          if (progress.phase == PluginSyncPhase.pluginFinished) {
+            syncedBytes += progress.bytes ?? 0;
+            AppLogger.instance.info(
+              pluginTimingLine(
+                progress.message,
+                progress.bytes ?? 0,
+                progress.elapsed ?? Duration.zero,
+              ),
+            );
+            return;
+          }
           syncMessage = progress.message;
           if (progress.phase == PluginSyncPhase.plugin &&
               progress.current != null) {
@@ -748,7 +777,8 @@ class PluginsModuleController extends ChangeNotifier
       syncCause = outcome.storageFailure;
       AppLogger.instance.info(
         'סנכרון התוספים: ${outcome.fetched} ירדו, '
-        '${outcome.skipped} דולגו, ${syncWarnings.length} אזהרות'
+        '${outcome.skipped} דולגו, ${syncWarnings.length} אזהרות, '
+        '${pluginTimingSummary(syncedBytes, clock.elapsed)}'
         '${syncWarnings.isEmpty ? '' : ':\n${syncWarnings.join('\n')}'}',
       );
       // ליומן בלבד: הבחירה עצמה שקופה למשתמש, אבל "למה התוסף הזה לא על

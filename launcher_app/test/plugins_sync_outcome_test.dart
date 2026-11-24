@@ -10,18 +10,21 @@ import 'package:plugins_manager/plugins_manager.dart';
 import 'test_support.dart';
 
 class _OutcomeManager extends PluginsManager {
-  _OutcomeManager(String dir, this.outcome)
+  _OutcomeManager(String dir, this.outcome, {this.events = const []})
       : super(resolveMirrorDir: () async => dir);
 
   final PluginSyncOutcome outcome;
+  final List<PluginSyncProgress> events;
 
   @override
   Future<PluginSyncOutcome> sync({
     List<String> appVersions = const [],
     void Function(PluginSyncProgress progress)? onProgress,
     bool Function()? isCancelled,
-  }) async =>
-      outcome;
+  }) async {
+    events.forEach(onProgress ?? (_) {});
+    return outcome;
+  }
 }
 
 PluginSyncOutcome _outcome({
@@ -118,5 +121,29 @@ void main() {
   test('כשל מדיה אינו כשל התקנה של תוסף', () async {
     await syncWith(_outcome(incompleteMedia: ['a']), before: hasUpdates);
     expect(controller.lastSyncFailed, isFalse);
+  });
+
+  test('כל תוסף שירד נרשם ביומן עם גודל, משך ומהירות', () async {
+    controller = PluginsModuleController(
+      mirrorRootDir: temporary.path,
+      manager: _OutcomeManager(
+        temporary.path,
+        _outcome(),
+        events: const [
+          PluginSyncProgress(
+            phase: PluginSyncPhase.pluginFinished,
+            message: 'בונה סוגיות',
+            bytes: 3 * 1024 * 1024,
+            elapsed: Duration(seconds: 2),
+          ),
+        ],
+      ),
+    );
+    await controller.sync();
+    await AppLogger.instance.flush();
+
+    final log = await File(AppLogger.instance.filePath).readAsString();
+    expect(log, contains('תוסף בונה סוגיות: 3 MB ב־2.0 שנ׳ (1.5 MB/s)'));
+    expect(log, matches(RegExp(r'אזהרות, 3 MB ב־\d+\.\d שנ׳')));
   });
 }
