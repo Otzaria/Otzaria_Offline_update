@@ -510,6 +510,19 @@ void main() {
         );
       });
 
+      test('a patch that starts below the registered version is not counted '
+          '(issue #327)', () async {
+        await registered(7);
+        releases[0] = release('v8-20261011', {
+          'patch-v7-v8.db.zst.manifest.json': 2,
+          'patch-v7-v8.db.zst': 100,
+          'patch-v5-v8.db.zst.manifest.json': 2,
+          'patch-v5-v8.db.zst': 5000,
+          'seforim.db.zst': 1000,
+        });
+        expect(await peekAndBound(manager(personal: true)), 1000 + 450);
+      });
+
       test(
         'no chain from the registered version, even by name — the full DB',
         () async {

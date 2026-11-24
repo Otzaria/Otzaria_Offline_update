@@ -818,7 +818,9 @@ full DB included.
 **"Personal update" is the one setting that changes what a download brings.**
 `AppSettings.personalUpdateMode` → `LibraryManager.personalUpdateMode` →
 `LibraryMirrorExporter.export(fromVersion:)`: only the patches from the user's own
-DB version upwards, and **no full DB** (`personalReleases`). It exists because
+DB version upwards, and **no full DB** (`personalReleases`). Patch arcs that start
+below that version are filtered here, in `PersonalReleasesClient`, since the engine
+is not changed from this repo (#327). Personal mode exists because
 carrying ~1.5GB to update a machine already at v20 is what users objected to (forum
 post 33695). Four things hold it together:
 
