@@ -22,6 +22,7 @@ class AndroidModuleController extends ChangeNotifier
     required String dataDir,
     required String stateDir,
     this.readOnly = false,
+    this.mirrorLocked = false,
     AndroidUpdateManager? manager,
   }) : _manager = manager ??
             AndroidUpdateManager(
@@ -29,6 +30,9 @@ class AndroidModuleController extends ChangeNotifier
 
   final AndroidUpdateManager _manager;
   final bool readOnly;
+
+  /// `mirror/` נעולה בהרשאות — משנה רק את נוסח ההודעה.
+  final bool mirrorLocked;
   AndroidOperation operation = AndroidOperation.idle;
   AndroidMirroredRelease? release;
   List<AndroidDevice> devices = const [];

@@ -742,6 +742,16 @@ void main() {
       expect(s.showsReportsIntro, isFalse);
     });
 
+    test('readOnly עובר עד מנהל הספרייה: אין מחיקת נכס פגום מהמראה', () {
+      expect(session(readOnly: true).library.managerForTest.mirrorReadOnly,
+          isTrue);
+      expect(session().library.managerForTest.mirrorReadOnly, isFalse);
+      final direct =
+          LibraryModuleController(dataDir: tempDir.path, mirrorReadOnly: true);
+      addTearDown(direct.dispose);
+      expect(direct.managerForTest.mirrorReadOnly, isTrue);
+    });
+
     test('כונן לקריאה בלבד אינו סופר דיווחים לאיסוף', () async {
       final s = session(readOnly: true);
       await s.recountReportsToCollect();

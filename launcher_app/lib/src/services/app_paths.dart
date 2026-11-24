@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:error_reports_manager/error_reports_manager.dart'
+    show AppReportService, DirectoryReportOutbox, SearchFeedbackTransport;
 import 'package:ffi/ffi.dart';
 import 'package:otzaria_downloads/otzaria_downloads.dart'
     show writeBytesAtomically;
@@ -41,7 +43,9 @@ class AppPaths {
     required this.stateDir,
     this.readOnly = false,
     this.driveFull = false,
-  });
+    this.mirrorLocked = false,
+    String? prefsDir,
+  }) : _prefsDir = prefsDir;
 
   /// שם התיקייה שנוצרת לצד קובץ ההרצה.
   static const String dirName = 'OtzariaData';
@@ -61,6 +65,16 @@ class AppPaths {
   final bool readOnly;
 
   final bool driveFull;
+
+  /// `mirror/` נעולה אך תיקיות הנתונים (לוגים, דוחות, משוב) כתיבות: [readOnly]
+  /// נשאר `true` ומכבה הורדות, אבל איסוף הדוחות והמשוב פעילים.
+  final bool mirrorLocked;
+
+  final String? _prefsDir;
+
+  /// היכן יושבים `launcher_settings.json` ו-FAQ. במראה נעולה השורש נעול,
+  /// ולכן הם במחשב ([stateDir] עצמו נשאר בכונן, כדי שהדוחות יעברו איתו).
+  String get prefsDir => _prefsDir ?? stateDir;
 
   /// שלושת ה-manifest שכל אחד מהם לבדו מוכיח שהמראה נמלאה בפועל.
   static const List<List<String>> _mirrorManifests = [
@@ -113,26 +127,38 @@ class AppPaths {
       );
     }
     final failure = await _probeWritable(dataDir);
-    if (failure == null) {
+    final mirrorLocked = await _isMirrorLocked(dataDir);
+    if (failure == null && !mirrorLocked) {
       return AppPaths(dataDir: dataDir, stateDir: dataDir);
     }
 
-    final diskFull = _isDiskFull(failure);
-    if (await _hasMirror(dataDir)) {
-      final stateDir = machineStateDir(
+    final diskFull = failure != null && _isDiskFull(failure);
+    if (mirrorLocked || await _hasMirror(dataDir)) {
+      final machineDir = machineStateDir(
         environment ?? Platform.environment,
         isWindows: Platform.isWindows,
         isMacOS: macOS,
       );
-      if (stateDir != null && await _probeWritable(stateDir) == null) {
+      if (machineDir != null && await _probeWritable(machineDir) == null) {
+        if (mirrorLocked && !diskFull && await _dataFoldersWritable(dataDir)) {
+          return AppPaths(
+            dataDir: dataDir,
+            stateDir: dataDir,
+            readOnly: true,
+            mirrorLocked: true,
+            prefsDir: machineDir,
+          );
+        }
         return AppPaths(
           dataDir: dataDir,
-          stateDir: stateDir,
+          stateDir: machineDir,
           readOnly: true,
           driveFull: diskFull,
         );
       }
     }
+    // mirror/ נעולה ואין לאן לגלות את המצב: כמו לפני הבדיקה לפי תיקייה.
+    if (failure == null) return AppPaths(dataDir: dataDir, stateDir: dataDir);
 
     throw AppPathsException(
       message: diskFull
@@ -247,18 +273,56 @@ class AppPaths {
   }
 
   static Future<FileSystemException?> _probeWritable(String dir) async {
-    final File probe;
+    File? probe;
     try {
       await Directory(dir).create(recursive: true);
       probe = File(p.join(dir, '.write-test-$pid'));
       await probe.writeAsString('ok', flush: true);
+      return null;
     } on FileSystemException catch (e) {
       return e;
+    } finally {
+      // גם כתיבה שנכשלה באמצע (דיסק מלא) עלולה להשאיר קובץ ב-mirror/.
+      try {
+        await probe?.delete();
+      } catch (_) {
+        // best-effort: מחיקה שנכשלה אינה כשל בדיקה.
+      }
     }
+  }
+
+  /// `mirror/` קיימת ואי אפשר לכתוב בה. חסרה = אפשר ליצור אותה, ולא נעולה.
+  static Future<bool> _isMirrorLocked(String dataDir) async {
+    final mirror = p.join(dataDir, 'mirror');
     try {
-      await probe.delete();
-    } on FileSystemException catch (_) {}
-    return null;
+      if (!await Directory(mirror).exists()) return false;
+    } on FileSystemException {
+      return false;
+    }
+    // כשל חולף (אנטי-וירוס, הפרת שיתוף) בכונן כתיב לא יהפוך אותו לנעול.
+    for (var attempt = 0; attempt < mirrorProbeAttempts; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(mirrorProbeBackoff * attempt);
+      }
+      if (await _probeWritable(mirror) == null) return false;
+    }
+    return true;
+  }
+
+  static const int mirrorProbeAttempts = 3;
+  static const Duration mirrorProbeBackoff = Duration(milliseconds: 100);
+
+  /// התיקיות שהמשגר כותב אליהן במחשב לא-מקוון: לוג ומצב, דוחות, משוב חיפוש.
+  static Future<bool> _dataFoldersWritable(String dataDir) async {
+    for (final dir in [
+      p.join(dataDir, logsDirName),
+      DirectoryReportOutbox.dirIn(dataDir),
+      AppReportService.dirIn(dataDir),
+      SearchFeedbackTransport.dirIn(dataDir),
+    ]) {
+      if (await _probeWritable(dir) != null) return false;
+    }
+    return true;
   }
 
   /// `true` אם המראה נושאת תוכן — קיומו של manifest אחד מספיק. תיקייה ריקה
@@ -312,11 +376,27 @@ class AppPaths {
     }
   }
 
+  /// מחשב שהריץ את הכונן במצב קריאה מלא שמר את קובצי המצב שלו בתיקיית המחשב.
+  /// במראה נעולה המצב עובר לכונן — מעתיקים (לא מזיזים) קובץ שחסר שם.
+  Future<void> seedStateFromMachine() async {
+    if (!mirrorLocked || prefsDir == stateDir) return;
+    for (final name in stateFileNames) {
+      try {
+        final target = File(p.join(stateFilesDir, name));
+        final source = File(p.join(prefsDir, logsDirName, name));
+        if (await target.exists() || !await source.exists()) continue;
+        await writeBytesAtomically(target.path, await source.readAsBytes());
+      } on FileSystemException {
+        continue;
+      }
+    }
+  }
+
   /// הגדרות המחשב מועתקות מהכונן הנעול רק אם טרם נשמרו כאן.
   Future<void> seedPreferences() async {
     if (!readOnly) return;
     const name = 'launcher_settings.json';
-    final target = File(p.join(stateDir, name));
+    final target = File(p.join(prefsDir, name));
     try {
       if (await target.exists()) return;
       final source = File(p.join(dataDir, name));

@@ -829,6 +829,10 @@ class _Pages extends PageStrings {
   String get libPersonalReadOnly =>
       'The drive is write-protected, so this computer cannot be registered on it.';
   @override
+  String get libPersonalMirrorLocked =>
+      'The drive is locked for updates on this computer, so this computer '
+      'cannot be registered on it.';
+  @override
   String get libSourceTitle => 'The drive folder it updates from';
   @override
   String get repDescription =>
@@ -935,6 +939,10 @@ class _Pages extends PageStrings {
   @override
   String get selfReadOnly =>
       'The drive is write-protected, so the new version cannot be downloaded to it.';
+  @override
+  String get selfMirrorLocked =>
+      'The drive is locked for updates on this computer, so the new version '
+      'cannot be downloaded to it.';
   @override
   String selfWhatsNew(String version) => "What's new in $version";
 }
@@ -1396,6 +1404,8 @@ class _Guide extends GuidanceStrings {
   String get driveReadOnlySuffix => 'write-protected';
   @override
   String get driveFullSuffix => 'full';
+  @override
+  String get driveMirrorLockedSuffix => 'locked for updates';
 
   @override
   String get welcomeTitle => 'Welcome to Otzaria Updates';
@@ -1851,6 +1861,10 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get personalMachinesReadOnly =>
       'The drive is write-protected, so its list of computers cannot change.';
+  @override
+  String get personalMachinesMirrorLocked =>
+      'The drive is locked for updates on this computer, so its list of '
+      'computers cannot change.';
   @override
   String get personalRemoveTitle => 'Remove this computer from the list?';
   @override
@@ -2840,6 +2854,23 @@ class _ReadOnlyDrive extends ReadOnlyDriveStrings {
       'The drive is full, so programs cannot be added, edited or removed here '
       'until space is freed on it. Programs already on the drive install as '
       'usual.';
+  @override
+  String get bannerTitleMirrorLocked =>
+      'The drive is locked for updates on this computer';
+  @override
+  String get bannerSubtitleMirrorLocked =>
+      'You can update this computer from it, and reports and feedback are '
+      'still saved on it. New updates can only be downloaded on the online '
+      'computer the drive belongs to.';
+  @override
+  String get downloadsDisabledSnackMirrorLocked =>
+      'The drive is locked for updates on this computer — there is nowhere to '
+      'download to. You can still install what it already carries.';
+  @override
+  String get customAppsManageDisabledMirrorLocked =>
+      'The drive is locked for updates on this computer, so programs cannot '
+      'be added, edited or removed here. Programs already on the drive '
+      'install as usual.';
 }
 
 class _Elevation extends ElevationStrings {
@@ -4696,6 +4727,10 @@ class _CustomApps extends CustomAppsStrings {
   String get emptyReadOnlyBody =>
       'This drive is write-protected, so programs cannot be added to it.';
   @override
+  String get emptyMirrorLockedBody =>
+      'This drive is locked for updates on this computer, so programs cannot '
+      'be added to it.';
+  @override
   String get manageEmptyTitle => 'No programs added yet';
   @override
   String get manageEmptyBody =>
@@ -5304,6 +5339,9 @@ class _Android extends AndroidStrings {
   @override
   String get readOnly =>
       'The drive is read-only. You can install or export an existing file; downloading updates and preparing tools require a writable drive.';
+  @override
+  String get readOnlyMirrorLocked =>
+      'The drive is locked for updates on this computer. You can install or export an existing file; downloading updates and preparing tools require a writable drive.';
   @override
   String get exportTarget =>
       'Choose a location outside the update folder to save the file.';

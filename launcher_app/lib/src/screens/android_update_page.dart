@@ -75,7 +75,7 @@ class _AndroidUpdatePageState extends State<AndroidUpdatePage> {
                   NoticeBanner(
                     leading: const IconTile(
                         icon: FluentIcons.lock_closed_24_regular),
-                    title: t.readOnly,
+                    title: c.mirrorLocked ? t.readOnlyMirrorLocked : t.readOnly,
                   ),
                 if (c.error != null)
                   NoticeBanner(

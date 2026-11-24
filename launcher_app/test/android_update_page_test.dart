@@ -184,6 +184,27 @@ void main() {
     expect(tester.widget<ActionButton>(copy).onPressed, isNull);
   });
 
+  for (final locked in [false, true]) {
+    testWidgets(
+        'read-only notice wording: ${locked ? 'mirror locked' : 'write-protected'}',
+        (tester) async {
+      final controller = AndroidModuleController(
+          dataDir: '/drive',
+          stateDir: '/state',
+          manager: MemoryAndroidManager(),
+          readOnly: true,
+          mirrorLocked: locked);
+      addTearDown(controller.dispose);
+      await controller.refresh();
+      await pumpScreen(tester, AndroidUpdatePage(controller: controller));
+      final t = stringsOf().android;
+      expect(find.text(locked ? t.readOnlyMirrorLocked : t.readOnly),
+          findsOneWidget);
+      expect(find.text(locked ? t.readOnly : t.readOnlyMirrorLocked),
+          findsNothing);
+    });
+  }
+
   testWidgets('cancelled installation requires a fresh device check',
       (tester) async {
     final manager = MemoryAndroidManager()..installWait = Completer<void>();

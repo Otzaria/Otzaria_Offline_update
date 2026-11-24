@@ -456,6 +456,7 @@ abstract class PageStrings {
   String libApplyEstimate(int lowMinutes, int highMinutes);
   String get libFullUnavailable;
   String get libPersonalReadOnly;
+  String get libPersonalMirrorLocked;
   String get libSourceTitle;
   String get repDescription;
   String get repSendingTitle;
@@ -503,6 +504,7 @@ abstract class PageStrings {
   String get selfAdminTitle;
   String get selfAdminBody;
   String get selfReadOnly;
+  String get selfMirrorLocked;
   String selfWhatsNew(String version);
 }
 
@@ -736,6 +738,7 @@ abstract class GuidanceStrings {
   String drive(String letter);
   String get driveReadOnlySuffix;
   String get driveFullSuffix;
+  String get driveMirrorLockedSuffix;
 
   // ── מסך הפתיחה ──
   String get welcomeTitle;
@@ -977,6 +980,7 @@ abstract class SettingsScreenStrings {
   String personalMachineThisSubtitle(String machineName, String version);
   String get personalMachineNotHere;
   String get personalMachinesReadOnly;
+  String get personalMachinesMirrorLocked;
   String get personalRemoveTitle;
   String get personalRemoveBody;
   String get personalRemoveThisBody;
@@ -1485,6 +1489,12 @@ abstract class ReadOnlyDriveStrings {
   String get bannerSubtitleDriveFull;
   String get downloadsDisabledSnackDriveFull;
   String get customAppsManageDisabledDriveFull;
+
+  /// `mirror/` נעולה בהרשאות אך הדוחות והמשוב עדיין נשמרים בכונן.
+  String get bannerTitleMirrorLocked;
+  String get bannerSubtitleMirrorLocked;
+  String get downloadsDisabledSnackMirrorLocked;
+  String get customAppsManageDisabledMirrorLocked;
 }
 
 // ── הרשאות מנהל ───────────────────────────────────────────────────────────────
@@ -2384,6 +2394,7 @@ abstract class CustomAppsStrings {
   String get manageEmptyTitle;
   String get manageEmptyBody;
   String get emptyReadOnlyBody;
+  String get emptyMirrorLockedBody;
   String get noCategoriesTitle;
   String get orderSectionTitle;
   String get formStepSource;
@@ -2731,6 +2742,7 @@ abstract class AndroidStrings {
   String get installationBlocked;
   String get verificationFailed;
   String get readOnly;
+  String get readOnlyMirrorLocked;
   String get exportTarget;
   String version(String version, int code);
   String toolsPath(String path);

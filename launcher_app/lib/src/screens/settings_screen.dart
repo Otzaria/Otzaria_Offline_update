@@ -34,6 +34,7 @@ class SettingsScreen extends StatelessWidget {
     this.onManageCustomApps,
     this.readOnly = false,
     this.driveFull = false,
+    this.mirrorLocked = false,
     this.saferMode,
     this.appReports,
     this.onOpenReports,
@@ -63,6 +64,7 @@ class SettingsScreen extends StatelessWidget {
 
   final bool readOnly;
   final bool driveFull;
+  final bool mirrorLocked;
 
   /// שומר הסף של מצב הסייפר — נדרש כדי לסמן אימות אחרי קביעת סיסמה.
   final SaferModeGate? saferMode;
@@ -149,6 +151,7 @@ class SettingsScreen extends StatelessWidget {
                 onOpenManager: onManageCustomApps ?? () {},
                 readOnly: readOnly,
                 driveFull: driveFull,
+                mirrorLocked: mirrorLocked,
               ),
             ],
             if (appReports != null || semanticConsentGranted != null)
@@ -566,7 +569,12 @@ class SettingsScreen extends StatelessWidget {
               onPressed: readOnly ? null : onRegisterHere,
             ),
           ),
-        if (readOnly) AppRow(title: t.personalMachinesReadOnly),
+        if (readOnly)
+          AppRow(
+            title: mirrorLocked
+                ? t.personalMachinesMirrorLocked
+                : t.personalMachinesReadOnly,
+          ),
       ],
     );
   }

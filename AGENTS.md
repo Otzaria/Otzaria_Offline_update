@@ -164,7 +164,7 @@ drive.
 
 It works because **no install writes to the drive** (best-effort exception: a
 smart-search asset failing its sha256, or a library one failing a second full
-read, is deleted, §5.2):
+read, is deleted — except in read-only modes, §5.2):
 Inno writes to the machine, the library applier stages next to the existing DB,
 plugins go into Otzaria's own folder. Logs and machine state move to `stateDir`.
 `AppPaths.seedPreferences` seeds `launcher_settings.json` once. Machine state
@@ -185,6 +185,29 @@ the drive*). `checkOnline` is skipped too — "there is something new online" wi
 way to bring it is nagging. Detection is free on the normal path: the mirror probe
 runs **only** after the write probe failed. An empty locked folder is still
 `SetupErrorScreen` — nothing to install from means the wrong place.
+
+**Mirror locked, data open (#305).** The write probe is per folder: `mirror/`
+(only when it exists) and the folders the launcher writes on an offline PC —
+`logs/`, `reports/outbox`, `reports/launcher`, `search-feedback/`. When
+`mirror/` is not writable but all of those are, `AppPaths` returns
+`readOnly: true` **and** `mirrorLocked: true`: every download gate stays the
+`readOnly` one, but error-report and search-feedback collection use
+`reportsBlocked` (`readOnly && !mirrorLocked`). `stateDir` stays on the drive,
+so logs, locks, state files and reports travel with it. **Preferences are the
+exception:** the root is locked, so `AppPaths.prefsDir` (settings, FAQ) is the
+machine dir, seeded once from the drive's copy by `seedPreferences`; the drive
+copy is never moved or changed, and the online PC keeps using it. A drive
+whose data folders are missing or locked too falls back to plain read-only.
+`mirrorLocked` reflects `mirror/` itself (root locked + `mirror/` writable
+stays plain read-only). The `mirror/` probe retries 3 times (100/200 ms) so a
+transient AV/sharing failure on a writable drive never flips the run. When the
+drive first becomes `mirrorLocked`, `seedStateFromMachine` copies the machine's
+earlier read-only state files into the drive's `logs/` — only missing files,
+never moved. Costs: one probe file in `mirror/` on every normal start.
+**The sha256-failed asset delete is off in both read-only states, by flag, not
+by the OS:** `LibraryManager(mirrorReadOnly:)` (launcher passes `readOnly`)
+makes `LibraryUpdateApplier` and `SemanticSearchAssets` keep the file and its
+resume sidecar (§5.2). `reportsBlockedFor` is the one source for "reports off".
 
 ---
 

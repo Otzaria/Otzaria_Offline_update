@@ -211,6 +211,19 @@ class HomePage extends StatelessWidget {
     if (!model.readOnly) return const [];
     final t = context.strings.readOnlyDrive;
     final full = model.driveFull;
+    if (model.mirrorLocked) {
+      return [
+        NoticeBanner(
+          key: ShellKeys.mirrorLockedNotice,
+          leading: const IconTile(
+            icon: FluentIcons.lock_closed_24_regular,
+            tone: IconTileTone.quiet,
+          ),
+          title: t.bannerTitleMirrorLocked,
+          body: t.bannerSubtitleMirrorLocked,
+        ),
+      ];
+    }
     return [
       NoticeBanner(
         key: full ? ShellKeys.driveFullNotice : ShellKeys.readOnlyNotice,
@@ -393,7 +406,7 @@ class HomePage extends StatelessWidget {
       ),
       title: t.introDialogTitle,
       // הנוסח נכתב לדו-שיח; בהודעה הפסקאות מתחברות לאחת.
-      body: (!model.readOnly
+      body: (!model.reportsBlocked
               ? t.introDialogContent
               : model.driveFull
                   ? t.introDialogContentReadOnlyDriveFull
@@ -457,7 +470,7 @@ String _elsewhereBody(BuildContext context, HomeViewModel m, String from) {
   );
   // כמו בדף הספרייה: בכונן מוגן אין לאן לרשום.
   return m.readOnly
-      ? '$body ${context.strings.pages.libPersonalReadOnly}'
+      ? '$body ${m.mirrorLocked ? context.strings.pages.libPersonalMirrorLocked : context.strings.pages.libPersonalReadOnly}'
       : body;
 }
 
@@ -1958,7 +1971,7 @@ class _Tiles extends StatelessWidget {
           m.reportsSending
               ? (StatusKind.working, g.chipReportsSending, null)
               // בכונן מוגן אין איסוף ואין שליחה: שליחה מוחקת מהכונן.
-              : m.readOnly
+              : m.reportsBlocked
                   ? (StatusKind.locked, g.chipReportsLocked, null)
                   : m.reportsToCollect > 0
                       ? (
@@ -2139,8 +2152,11 @@ class _StatusBar extends StatelessWidget {
                 icon: model.driveFull
                     ? FluentIcons.storage_16_regular
                     : FluentIcons.lock_closed_16_regular,
-                label:
-                    model.driveFull ? g.driveFullSuffix : g.driveReadOnlySuffix,
+                label: model.mirrorLocked
+                    ? g.driveMirrorLockedSuffix
+                    : model.driveFull
+                        ? g.driveFullSuffix
+                        : g.driveReadOnlySuffix,
               ),
             ],
           ],

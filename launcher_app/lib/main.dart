@@ -137,11 +137,12 @@ void main() {
       // לפני טעינת ההגדרות: במצב קריאה הן נקראות מתיקיית המחשב, ובלי
       // ההעתקה הזו הרצה ראשונה שם הייתה מתחילה מברירות המחדל.
       await paths.seedPreferences();
+      await paths.seedStateFromMachine();
       await paths.migrateStateFiles();
 
       // שני אלה נוגעים בדיסק ואינם תלויים זה בזה. בטור, על כונן USB איטי,
       // זה היה שני סבבי I/O לפני הפריים הראשון; במקביל — סבב אחד.
-      final settings = SettingsController(dataDir: paths.stateDir);
+      final settings = SettingsController(dataDir: paths.prefsDir);
       final initialized = await Future.wait([
         AppLogger.init(
           paths.stateDir,
@@ -166,8 +167,13 @@ void main() {
       }
 
       if (paths.readOnly) {
-        final where = 'dataDir=${paths.dataDir} stateDir=${paths.stateDir}';
-        if (paths.driveFull) {
+        final where = 'dataDir=${paths.dataDir} stateDir=${paths.stateDir} '
+            'prefsDir=${paths.prefsDir}';
+        if (paths.mirrorLocked) {
+          AppLogger.instance.warn(
+            'מראה נעולה, הנתונים כתיבים — הגדרות נשמרות במחשב הזה: $where',
+          );
+        } else if (paths.driveFull) {
           AppLogger.instance.warn(
             'הכונן מלא — מצב והגדרות נשמרים במחשב הזה: $where',
           );
@@ -274,6 +280,8 @@ class LauncherApp extends StatelessWidget {
             stateDir: paths.stateDir,
             readOnly: paths.readOnly,
             driveFull: paths.driveFull,
+            mirrorLocked: paths.mirrorLocked,
+            prefsDir: paths.prefsDir,
             settings: settings,
             appReports: appReports,
           ),

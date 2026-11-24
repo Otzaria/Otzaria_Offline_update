@@ -126,7 +126,9 @@ class LibraryUpdateApplier {
     int maxFullDbBytes = defaultMaxFullDbBytes,
     int? Function(String path)? freeBytesFor,
     bool Function(String path)? isFatVolume,
-  }) : _processGuard = processGuard,
+    bool mirrorReadOnly = false,
+  }) : _mirrorReadOnly = mirrorReadOnly,
+       _processGuard = processGuard,
        _freeBytesFor = freeBytesFor ?? DiskSpaceProbe.freeBytesFor,
        _isFatVolume = isFatVolume ?? DiskSpaceProbe.isKnownFat,
        _recovery = recovery,
@@ -139,6 +141,9 @@ class LibraryUpdateApplier {
     _downloader = StreamingPatchDownloader(extractor: _extractRemotePatch);
   }
 
+  /// `mirror/` נעולה או מוגנת: אין מוחקים ממנה נכס פגום ואין נוגעים בסימון
+  /// האימות שלו. ה-OS אינו הגנה מספקת — הרשאת מחיקה יכולה להיות פתוחה.
+  final bool _mirrorReadOnly;
   final OtzariaProcessGuard _processGuard;
   final OfflineLibraryDbRecoveryService _recovery;
   final ExtractedDbVerifier _verifyExtractedDb;
@@ -1403,8 +1408,10 @@ class LibraryUpdateApplier {
 
   /// נכס במראה שנכשל ב-sha256: בלי סימון האימות שלידו, ההורדה הבאה במחשב
   /// המקוון מאמתת אותו מחדש ומחליפה אותו — אחרת גודל ו-mtime זהים מדלגים עליו.
-  Future<void> _forgetMirrorVerification(String mirrorPath) =>
-      _deleteQuietly(PatchDownloader.resumeSidecarPath(mirrorPath));
+  Future<void> _forgetMirrorVerification(String mirrorPath) async {
+    if (_mirrorReadOnly) return;
+    await _deleteQuietly(PatchDownloader.resumeSidecarPath(mirrorPath));
+  }
 
   /// קריאה אחת שגויה (גשר USB גבולי) לא מוחקת קובץ תקין של ~1.5GB: נמחק רק
   /// אם גם קריאה שנייה מלאה אינה נותנת את ה-sha256. בלי digest — סימון בלבד.
@@ -1413,6 +1420,7 @@ class LibraryUpdateApplier {
     String? expectedSha256,
     bool Function()? isCancelled,
   ) async {
+    if (_mirrorReadOnly) return;
     if (expectedSha256 == null) {
       await _forgetMirrorVerification(mirrorPath);
       return;

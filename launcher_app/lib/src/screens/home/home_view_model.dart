@@ -11,6 +11,7 @@ import '../../controllers/download_plan.dart' show MirrorComponent;
 import '../../controllers/launcher_update_controller.dart';
 import '../../controllers/library_module_controller.dart';
 import '../../controllers/otzaria_module_controller.dart';
+import '../../services/drive_mode.dart';
 import '../../shell/app_session.dart';
 import '../../shell/home_guidance.dart';
 import '../../shell/home_guidance_session.dart';
@@ -290,6 +291,11 @@ class HomeViewModel {
 
   bool get readOnly => guidance.readOnly;
   bool get driveFull => guidance.driveFull;
+  bool get mirrorLocked => guidance.mirrorLocked;
+
+  /// איסוף ושליחה של דוחות כבויים רק כשגם תיקיות הנתונים אינן כתיבות.
+  bool get reportsBlocked =>
+      reportsBlockedFor(readOnly: readOnly, mirrorLocked: mirrorLocked);
 
   /// גם בכונן מוגן: הדיווחים שבו נאמרים, אף שאי אפשר לשלוח אותם מכאן.
   bool get showsReportsTile =>

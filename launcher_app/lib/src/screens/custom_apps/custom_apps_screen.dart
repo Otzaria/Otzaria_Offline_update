@@ -21,6 +21,7 @@ class CustomAppsScreen extends StatefulWidget {
     super.key,
     required this.controller,
     this.readOnly = false,
+    this.mirrorLocked = false,
     this.detailId,
     this.onDetailChanged,
     this.online,
@@ -32,6 +33,7 @@ class CustomAppsScreen extends StatefulWidget {
   /// הכונן מוגן מפני כתיבה. תוכנה שכבר בכונן מותקנת ומופעלת כרגיל; הורדה
   /// כותבת אליו, ולכן אינה קיימת.
   final bool readOnly;
+  final bool mirrorLocked;
 
   /// כמו ב-`PluginsScreen`: עם [onDetailChanged] התוכנה שדף הפרטים שלה מוצג
   /// היא נתיב בנווט.
@@ -314,7 +316,11 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
       return EmptyState(
         icon: FluentIcons.apps_add_in_24_regular,
         title: t.manageEmptyTitle,
-        body: widget.readOnly ? t.emptyReadOnlyBody : t.manageEmptyBody,
+        body: !widget.readOnly
+            ? t.manageEmptyBody
+            : widget.mirrorLocked
+                ? t.emptyMirrorLockedBody
+                : t.emptyReadOnlyBody,
         actions: [
           if (widget.onOpenManage case final open?)
             ActionButton.recommended(

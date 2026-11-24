@@ -23,6 +23,7 @@ class LauncherUpdatePage extends StatelessWidget {
     required this.onOpenFolder,
     this.onRestartElevated,
     this.readOnly = false,
+    this.mirrorLocked = false,
     this.busy = false,
     this.onCheck,
     this.checking = false,
@@ -40,6 +41,9 @@ class LauncherUpdatePage extends StatelessWidget {
 
   /// כונן מוגן: אין לאן להוריד.
   final bool readOnly;
+
+  /// `mirror/` נעולה בהרשאות — רק הנוסח משתנה.
+  final bool mirrorLocked;
 
   /// משימה ארוכה רצה — ההתקנה סוגרת את הכלי, ולכן היא ממתינה לסופה.
   final bool busy;
@@ -266,7 +270,11 @@ class LauncherUpdatePage extends StatelessWidget {
             body: u.installUnavailableNotice,
             below: PathText(c.mirrorDir),
           ),
-        if (online && readOnly) Text(t.selfReadOnly, style: sub),
+        if (online && readOnly)
+          Text(
+            mirrorLocked ? t.selfMirrorLocked : t.selfReadOnly,
+            style: sub,
+          ),
         if (busy && (ready || online)) Text(u.busyNotice, style: sub),
       ],
       actions: [if (primary != null) primary],

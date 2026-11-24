@@ -7,6 +7,7 @@ import 'package:plugins_manager/plugins_manager.dart';
 import '../../controllers/app_reports_controller.dart';
 import '../../controllers/error_reports_controller.dart';
 import '../../controllers/plugins_module_controller.dart';
+import '../../services/drive_mode.dart';
 import '../../services/native_file_dialogs.dart';
 import '../../services/timestamps.dart';
 import '../../shell/shell_keys.dart';
@@ -29,6 +30,7 @@ class PluginsScreen extends StatefulWidget {
     this.active = true,
     this.readOnly = false,
     this.driveFull = false,
+    this.mirrorLocked = false,
     this.busyElsewhere = false,
     this.syncBlockedElsewhere = false,
     this.online,
@@ -50,6 +52,7 @@ class PluginsScreen extends StatefulWidget {
   final bool active;
   final bool readOnly;
   final bool driveFull;
+  final bool mirrorLocked;
 
   /// התקנה, שמירה וייצוא — מראה התוספים נכתבת, או שאוצריא מוחלפת עכשיו.
   final bool busyElsewhere;
@@ -147,9 +150,11 @@ class _PluginsScreenState extends State<PluginsScreen> {
   Future<void> _sync() async {
     if (widget.readOnly) {
       final t = context.strings.readOnlyDrive;
-      UiSnack.show(widget.driveFull
-          ? t.downloadsDisabledSnackDriveFull
-          : t.downloadsDisabledSnack);
+      UiSnack.show(widget.mirrorLocked
+          ? t.downloadsDisabledSnackMirrorLocked
+          : widget.driveFull
+              ? t.downloadsDisabledSnackDriveFull
+              : t.downloadsDisabledSnack);
       return;
     }
     final t = context.strings.plugins;
@@ -278,7 +283,11 @@ class _PluginsScreenState extends State<PluginsScreen> {
         online: widget.online,
         onSave: () => _save(selected),
         onInstall: () => _install(selected),
-        onReport: widget.readOnly || widget.reports == null
+        onReport: reportsBlockedFor(
+                  readOnly: widget.readOnly,
+                  mirrorLocked: widget.mirrorLocked,
+                ) ||
+                widget.reports == null
             ? null
             : () => showPluginReportDialog(context,
                 plugin: selected,

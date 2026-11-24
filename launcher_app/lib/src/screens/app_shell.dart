@@ -23,6 +23,7 @@ import '../flows/library_flows.dart'
 import '../services/after_launcher_update_store.dart';
 import '../services/app_paths.dart';
 import '../services/dialog_queue.dart';
+import '../services/drive_mode.dart';
 import '../services/file_reveal.dart';
 import '../services/notices_seen_store.dart';
 import '../services/sleep_inhibitor.dart';
@@ -92,6 +93,8 @@ class AppShell extends StatefulWidget {
     String? stateDir,
     this.readOnly = false,
     this.driveFull = false,
+    this.mirrorLocked = false,
+    String? prefsDir,
     this.runningLocator = const RunningOtzariaLocator(),
     this.showWindowButtons,
     this.noticesStore,
@@ -99,7 +102,8 @@ class AppShell extends StatefulWidget {
     this.sleepInhibitor,
     this.searchFeedback,
     this.errorReports,
-  }) : _stateDir = stateDir;
+  })  : _stateDir = stateDir,
+        _prefsDir = prefsDir;
 
   /// התיקייה שלצד התוכנה — המראה, כלומר המקור שממנו קוראים ומתקינים.
   final String dataDir;
@@ -115,6 +119,12 @@ class AppShell extends StatefulWidget {
 
   final bool readOnly;
   final bool driveFull;
+  final bool mirrorLocked;
+  final String? _prefsDir;
+
+  /// איסוף דוחות כבוי רק כשגם תיקיות הנתונים אינן כתיבות.
+  bool get reportsBlocked =>
+      reportsBlockedFor(readOnly: readOnly, mirrorLocked: mirrorLocked);
 
   final SettingsController settings;
 
@@ -171,6 +181,8 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
       prompts: this,
       readOnly: widget.readOnly,
       driveFull: widget.driveFull,
+      mirrorLocked: widget.mirrorLocked,
+      prefsDir: widget._prefsDir,
       runningLocator: widget.runningLocator,
       noticesStore: widget.noticesStore,
       appReports: widget.appReports,
@@ -495,7 +507,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
     final s = _session;
     await collectReportsToDrive(
       s.errorReports,
-      readOnly: widget.readOnly,
+      readOnly: widget.reportsBlocked,
       isOtzariaRunning: s.refreshProcessState,
       disclosedReports: s.errorReportsToCollect,
     );
@@ -667,6 +679,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
       ShellSection.customApps => CustomAppsScreen(
           controller: s.customApps,
           readOnly: widget.readOnly,
+          mirrorLocked: widget.mirrorLocked,
           online: onlineState(s),
           onOpenManage: widget.readOnly
               ? null
@@ -686,6 +699,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           semanticOffer: s.onlineSemanticOffer,
           busy: s.libraryApplyBlocked,
           readOnly: widget.readOnly,
+          mirrorLocked: widget.mirrorLocked,
           appInstalled: s.otzaria.currentVersion != null,
           appInstallable: switch (s.otzaria.status) {
             OtzariaModuleStatus.idle ||
@@ -708,6 +722,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           online: onlineState(s),
           otzariaInstalled: s.otzaria.currentVersion != null,
           driveFull: widget.driveFull,
+          mirrorLocked: widget.mirrorLocked,
           busyElsewhere: s.pluginActionsBlockedElsewhere,
           syncBlockedElsewhere: s.pluginSyncBlockedElsewhere,
           detailId: _detailId(ShellSection.plugins),
@@ -725,7 +740,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           onCollect: () => unawaited(_collectReports()),
           onUpload: s.uploadReports,
           onStop: s.stopReports,
-          readOnly: widget.readOnly,
+          readOnly: widget.reportsBlocked,
           driveFull: widget.driveFull,
           legacyNotice: s.showsLegacyReportsNotice,
           onDismissLegacy: () =>
@@ -738,6 +753,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
       ShellSection.launcher => LauncherUpdatePage(
           controller: s.launcherUpdate,
           readOnly: widget.readOnly,
+          mirrorLocked: widget.mirrorLocked,
           busy: s.exitWouldInterrupt,
           onDownload: () => unawaited(s.downloadLauncherUpdate()),
           onInstall: () => unawaited(s.installLauncherUpdate()),
@@ -760,6 +776,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
               unawaited(_navigator.push(const CustomAppsManageRoute())),
           readOnly: widget.readOnly,
           driveFull: widget.driveFull,
+          mirrorLocked: widget.mirrorLocked,
           appReports: widget.appReports,
           onOpenReports: () => unawaited(_goTo(ShellSection.reports)),
           launcherUpdate: s.launcherUpdate,

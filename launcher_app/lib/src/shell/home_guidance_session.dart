@@ -24,6 +24,7 @@ GuidanceFacts guidanceFactsFromSession(
   return GuidanceFacts(
     readOnly: s.readOnly,
     driveFull: s.driveFull,
+    mirrorLocked: s.mirrorLocked,
     otzariaStatus: AppStatusFact.values.byName(otzaria.status.name),
     otzariaInstalled: otzaria.currentVersion != null,
     otzariaMirrorVersion: otzaria.latestVersion,

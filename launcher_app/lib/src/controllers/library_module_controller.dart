@@ -82,6 +82,7 @@ class LibraryModuleController extends ChangeNotifier
     Future<int?> Function()? mirroredReadableDbSchema,
     Future<List<String>> Function()? mirroredOtzariaVersions,
     OtzariaInstanceLock? instanceLock,
+    bool mirrorReadOnly = false,
     LibraryManager? manager,
   })  : _mirroredOtzariaUpdate = mirroredOtzariaUpdate,
         _mirroredReadableDbSchema = mirroredReadableDbSchema,
@@ -95,6 +96,7 @@ class LibraryModuleController extends ChangeNotifier
               mirroredReadableDbSchema: mirroredReadableDbSchema,
               mirroredOtzariaVersions: mirroredOtzariaVersions,
               instanceLock: instanceLock,
+              mirrorReadOnly: mirrorReadOnly,
             );
 
   final Future<String?> Function()? _mirroredOtzariaUpdate;

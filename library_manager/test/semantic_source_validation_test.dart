@@ -133,6 +133,25 @@ void main() {
     expect(await Directory(vectors).exists(), isFalse);
   });
 
+  test('a read-only mirror keeps a same-size damaged source', () async {
+    assets.dispose();
+    assets = SemanticSearchAssets(
+      models: fakeModels,
+      mirrorReadOnly: true,
+      removableProbe: (_) => removable,
+      engineFactory: (_) async => engine,
+      httpClient: MockClient((request) async => fail('request sent')),
+    );
+    final source = sources['vectors']!;
+    final bytes = await source.readAsBytes();
+    bytes[0] ^= 1;
+    await source.writeAsBytes(bytes);
+
+    await expectLater(install(), throwsA(isA<FormatException>()));
+
+    expect(await source.exists(), isTrue);
+  });
+
   for (final kind in ['model', 'manifest', 'vectors']) {
     test('a missing $kind source names the local file', () async {
       final source = sources[kind]!;

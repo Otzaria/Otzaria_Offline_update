@@ -476,6 +476,44 @@ void main() {
       }
     });
 
+    test(
+      'מראה לקריאה בלבד: נכס שנכשל ב-sha256 והסימון שלו אינם נמחקים',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        applier = LibraryUpdateApplier(
+          processGuard: const _FakeGuard(false),
+          mirrorReadOnly: true,
+        );
+        final compressedPath = p.join(tempDir.path, 'corrupt.db.zst');
+        File(compressedPath).writeAsBytesSync(
+          Uint8List.fromList([
+            0x28,
+            0xB5,
+            0x2F,
+            0xFD,
+            ...List.filled(64, 0x5A),
+          ]),
+        );
+        File(dbPath).writeAsStringSync('OLD DB');
+        final sidecar = File(PatchDownloader.resumeSidecarPath(compressedPath))
+          ..writeAsStringSync('token\netag\nverified');
+
+        await expectLater(
+          applier.applyFullDownload(
+            plan: fullPlanFor(compressedPath, digest: 'sha256:${'a' * 64}'),
+            dbPath: dbPath,
+          ),
+          throwsA(isA<PatchDownloadException>()),
+        );
+
+        expect(File(compressedPath).existsSync(), isTrue);
+        expect(sidecar.existsSync(), isTrue);
+      },
+    );
+
     test('קובץ דחוס פגום בלי digest: נשאר, ורק סימון האימות נמחק', () async {
       if (bindings == null) {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');

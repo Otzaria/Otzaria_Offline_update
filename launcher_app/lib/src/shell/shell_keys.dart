@@ -29,6 +29,7 @@ abstract final class ShellKeys {
 
   static const readOnlyNotice = ValueKey('home.notice.readOnly');
   static const driveFullNotice = ValueKey('home.notice.driveFull');
+  static const mirrorLockedNotice = ValueKey('home.notice.mirrorLocked');
   static const reportsIntroNotice = ValueKey('home.notice.reportsIntro');
   static const searchFeedbackCollectedNotice =
       ValueKey('home.notice.searchFeedbackCollected');

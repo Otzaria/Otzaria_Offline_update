@@ -807,6 +807,9 @@ class _Pages extends PageStrings {
   String get libPersonalReadOnly =>
       'הכונן מוגן מפני כתיבה, ולכן אי אפשר לרשום אליו את המחשב הזה.';
   @override
+  String get libPersonalMirrorLocked =>
+      'הכונן נעול לעדכונים במחשב הזה, ולכן אי אפשר לרשום אליו את המחשב הזה.';
+  @override
   String get libSourceTitle => 'התיקייה בכונן שממנה מעדכנים';
   @override
   String get repDescription =>
@@ -904,6 +907,10 @@ class _Pages extends PageStrings {
   @override
   String get selfReadOnly =>
       'הכונן מוגן מפני כתיבה, ולכן אי אפשר להוריד אליו את הגרסה החדשה.';
+  @override
+  String get selfMirrorLocked =>
+      'הכונן נעול לעדכונים במחשב הזה, ולכן אי אפשר להוריד אליו את הגרסה '
+      'החדשה.';
   @override
   String selfWhatsNew(String version) => 'מה חדש ב-${_ltr(version)}';
 }
@@ -1356,6 +1363,8 @@ class _Guide extends GuidanceStrings {
   String get driveReadOnlySuffix => 'מוגן מפני כתיבה';
   @override
   String get driveFullSuffix => 'מלא';
+  @override
+  String get driveMirrorLockedSuffix => 'נעול לעדכונים';
 
   @override
   String get welcomeTitle => 'ברוך הבא לעדכוני אוצריא';
@@ -1779,6 +1788,10 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get personalMachinesReadOnly =>
       'הכונן מוגן מפני כתיבה, ולכן אי אפשר לשנות בו את רשימת המחשבים.';
+  @override
+  String get personalMachinesMirrorLocked =>
+      'הכונן נעול לעדכונים במחשב הזה, ולכן אי אפשר לשנות בו את רשימת '
+      'המחשבים.';
   @override
   String get personalRemoveTitle => 'להסיר את המחשב מהרשימה?';
   @override
@@ -2709,6 +2722,20 @@ class _ReadOnlyDrive extends ReadOnlyDriveStrings {
   String get customAppsManageDisabledDriveFull =>
       'הכונן מלא, ולכן אי אפשר להוסיף, לערוך או להסיר כאן תוכנות עד שיתפנה '
       'בו מקום. התקנה של תוכנות שכבר יש בכונן עובדת כרגיל.';
+  @override
+  String get bannerTitleMirrorLocked => 'הכונן נעול לעדכונים במחשב הזה';
+  @override
+  String get bannerSubtitleMirrorLocked =>
+      'אפשר לעדכן ממנו את המחשב הזה, ודוחות ומשוב ממשיכים להישמר בו. הורדת '
+      'עדכונים חדשים אפשרית רק במחשב המקוון שהכונן שייך לו.';
+  @override
+  String get downloadsDisabledSnackMirrorLocked =>
+      'הכונן נעול לעדכונים במחשב הזה — אין לאן להוריד. אפשר להתקין ממה '
+      'שכבר יש בו.';
+  @override
+  String get customAppsManageDisabledMirrorLocked =>
+      'הכונן נעול לעדכונים במחשב הזה, ולכן אי אפשר להוסיף, לערוך או להסיר '
+      'כאן תוכנות. התקנה של תוכנות שכבר יש בכונן עובדת כרגיל.';
 }
 
 class _Elevation extends ElevationStrings {
@@ -4436,6 +4463,9 @@ class _CustomApps extends CustomAppsStrings {
   String get emptyReadOnlyBody =>
       'הכונן הזה מוגן מכתיבה, ולכן אי אפשר להוסיף אליו תוכנות.';
   @override
+  String get emptyMirrorLockedBody =>
+      'הכונן נעול לעדכונים במחשב הזה, ולכן אי אפשר להוסיף אליו תוכנות.';
+  @override
   String get manageEmptyTitle => 'עוד לא נוספו תוכנות';
   @override
   String get manageEmptyBody =>
@@ -5020,6 +5050,9 @@ class _Android extends AndroidStrings {
   @override
   String get readOnly =>
       'הכונן מוגן מכתיבה. אפשר להתקין או לייצא קובץ שכבר נמצא בו; להורדה ולהכנת כלים נדרש כונן שניתן לכתוב אליו.';
+  @override
+  String get readOnlyMirrorLocked =>
+      'הכונן נעול לעדכונים במחשב הזה. אפשר להתקין או לייצא קובץ שכבר נמצא בו; להורדה ולהכנת כלים נדרש כונן שניתן לכתוב אליו.';
   @override
   String get exportTarget => 'בחר מיקום לשמירת הקובץ מחוץ לתיקיית העדכונים.';
   @override

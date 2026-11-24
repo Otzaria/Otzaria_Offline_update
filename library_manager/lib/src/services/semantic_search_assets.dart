@@ -478,6 +478,7 @@ class SemanticSearchAssets {
     bool Function(String)? removableProbe,
     WriteSpeedProbe? writeProbe,
     SemanticEngineFactory? engineFactory,
+    bool mirrorReadOnly = false,
     @visibleForTesting List<SemanticAsset>? models,
     @visibleForTesting
     ({String familyId, String tokenizerChecksum})? modelFamily,
@@ -488,6 +489,7 @@ class SemanticSearchAssets {
        _freeBytesFor = freeBytesFor ?? DiskSpaceProbe.freeBytesFor,
        _removableProbe = removableProbe,
        _writeProbe = writeProbe,
+       _mirrorReadOnly = mirrorReadOnly,
        _engineFactory = engineFactory,
        _specs = {
          ...SemanticModelSpec.all,
@@ -517,6 +519,9 @@ class SemanticSearchAssets {
   final int? Function(String) _freeBytesFor;
   final bool Function(String)? _removableProbe;
   final WriteSpeedProbe? _writeProbe;
+
+  /// `mirror/` אינה כתיבה: קובץ שנכשל ב-hash אינו נמחק ממנה.
+  final bool _mirrorReadOnly;
   final bool _ownsClient;
   final ExternalLibrary? _nativeLibrary;
   final SemanticEngineFactory? _engineFactory;
@@ -3071,7 +3076,7 @@ class SemanticSearchAssets {
         isCancelled: isCancelled,
       );
     } on _CorruptLocalFile catch (error) {
-      if (p.isWithin(mirrorDir, error.path)) {
+      if (!_mirrorReadOnly && p.isWithin(mirrorDir, error.path)) {
         try {
           await File(error.path).delete();
         } on FileSystemException {

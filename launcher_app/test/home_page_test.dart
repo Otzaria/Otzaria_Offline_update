@@ -1485,6 +1485,33 @@ void main() {
       });
     }
 
+    testWidgets('מראה נעולה: שבב "נעול לעדכונים", וההודעה שלו ולא של כונן מוגן',
+        (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        HomePage(
+          model: HomeViewModel(
+            guidance: deriveHomeGuidance(
+              const GuidanceFacts(readOnly: true, mirrorLocked: true),
+            ),
+            driveName: 'E:',
+          ),
+        ),
+      );
+
+      final chip = tester.widget<StatusChip>(
+        find.descendant(
+          of: find.byKey(ShellKeys.driveLine),
+          matching: find.byKey(ShellKeys.driveLockedChip),
+        ),
+      );
+      expect(chip.label, g.driveMirrorLockedSuffix);
+      expect(find.byKey(ShellKeys.mirrorLockedNotice), findsOneWidget);
+      expect(find.byKey(ShellKeys.readOnlyNotice), findsNothing);
+    });
+
     testWidgets('כונן מוגן: שבב אדום עם מנעול ליד הכונן, ובלי מוגן — אין שבב', (
       tester,
     ) async {

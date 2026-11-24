@@ -31,6 +31,7 @@ class LibraryScreen extends StatelessWidget {
     this.semanticOffer = false,
     this.busy = false,
     this.readOnly = false,
+    this.mirrorLocked = false,
     this.appInstalled = true,
     this.appInstallable = false,
   });
@@ -67,6 +68,7 @@ class LibraryScreen extends StatelessWidget {
 
   /// כונן מוגן: אי אפשר לרשום אליו את המחשב הזה או לשנות את המיקום.
   final bool readOnly;
+  final bool mirrorLocked;
 
   /// אוצריא מותקנת במחשב הזה. בלעדיה "עדכון כאן" מתקין קודם את התוכנה —
   /// ורק כשהיא בכונן ([appInstallable]) והספרייה עוד לא מותקנת.
@@ -181,7 +183,8 @@ class LibraryScreen extends StatelessWidget {
               c.personalFromVersion?.toString() ??
                   context.strings.common.unknownValue,
             ),
-            if (readOnly) t.libPersonalReadOnly,
+            if (readOnly)
+              mirrorLocked ? t.libPersonalMirrorLocked : t.libPersonalReadOnly,
           ].join(' '),
           actions: [
             ActionButton.neutral(
