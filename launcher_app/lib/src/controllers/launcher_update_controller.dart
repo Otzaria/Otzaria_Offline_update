@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../self_update/launcher_changelog.dart';
@@ -114,21 +116,46 @@ class LauncherUpdateController extends ChangeNotifier
     );
   }
 
-  /// בדיקה קלה ברשת. כשל (בעיקר "אין חיבור") הוא מצב תקין ונשמר בשקט, בדיוק
-  /// כמו במודולים האחרים — בדיקה אוטומטית לא מציגה שגיאה כשאין רשת.
-  Future<void> checkOnline() async {
+  int _onlineCheckGeneration = 0;
+  Completer<void>? _onlineCheck;
+
+  /// כל קריאה מרעננת; קוראים חופפים ממתינים כולם לתוצאת הבדיקה האחרונה.
+  /// כשל רשת נשמר בשקט, ותוצאה שנפסלה אינה משחררת את הפעולה הממתינה.
+  Future<void> checkOnline() {
+    if (isDisposed) return Future.value();
+    final generation = ++_onlineCheckGeneration;
+    final completion = _onlineCheck ??= Completer<void>();
+    unawaited(_checkOnline(generation).then((_) {
+      if (generation != _onlineCheckGeneration) return;
+      _onlineCheck = null;
+      completion.complete();
+    }, onError: (Object error, StackTrace stackTrace) {
+      if (generation != _onlineCheckGeneration) return;
+      _onlineCheck = null;
+      completion.completeError(error, stackTrace);
+    }));
+    return completion.future;
+  }
+
+  Future<void> _checkOnline(int generation) async {
     // הכשל הקודם נשאר עד התשובה החדשה, כדי ששורת המצב לא תאמר "מחובר" באמצע.
     notifyListeners();
 
     try {
-      onlineRelease = await _updater.peekLatestOnline();
+      final found = await _updater.peekLatestOnline();
+      // בדיקה חדשה יותר כבר רצה — תשובה ישנה אינה דורסת אותה.
+      if (isDisposed || generation != _onlineCheckGeneration) return;
+      onlineRelease = found;
       // בקשה נוספת רק כשיש מה להציע — היומן מוצג בדיאלוג ההצעה.
       final online = onlineRelease;
       if (online != null && hasOnlineUpdate) {
-        onlineRelease = await _updater.withChangelog(online);
+        final withNotes = await _updater.withChangelog(online);
+        if (isDisposed || generation != _onlineCheckGeneration) return;
+        onlineRelease = withNotes;
       }
       onlineCheckError = null;
     } catch (e) {
+      if (isDisposed || generation != _onlineCheckGeneration) return;
       onlineRelease = null;
       onlineCheckError = e.toString();
       // ראו `LibraryModuleController.checkOnline` — בלי stack trace בכוונה.

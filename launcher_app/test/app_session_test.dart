@@ -20,7 +20,7 @@ import 'package:launcher_app/src/controllers/search_feedback_controller.dart';
 import 'package:launcher_app/src/screens/home/home_view_model.dart';
 import 'package:launcher_app/src/self_update/launcher_release.dart';
 import 'package:launcher_app/src/self_update/launcher_release_client.dart'
-    show LauncherDownloadCancelled;
+    show LauncherDownloadCancelled, LauncherUpdateException;
 import 'package:launcher_app/src/self_update/launcher_self_updater.dart';
 import 'package:launcher_app/src/self_update/launcher_update_mirror.dart'
     show MirroredLauncherRelease;
@@ -65,6 +65,23 @@ import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'storage_real_engine_support.dart';
 import 'test_support.dart';
+
+OtzariaManager? _linuxOtzaria({
+  required String dataDir,
+  required String stateDir,
+  RunningOtzariaLocator runningLocator = const _NeverRunningLocator(),
+  OtzariaLauncher launcher = const OtzariaLauncher(),
+}) =>
+    Platform.isLinux
+        ? OtzariaManager(
+            dataDir: dataDir,
+            stateDir: p.join(stateDir, AppPaths.logsDirName),
+            platform: OtzariaTargetPlatform.windows,
+            runningLocator: runningLocator,
+            launcher: launcher,
+            onStateNotSaved: OtzariaModuleController.logStateNotSaved,
+          )
+        : null;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -123,7 +140,12 @@ void main() {
       backgroundPriority:
           background ?? BackgroundPriority(platformSwitch: (_) => true),
       otzariaLauncher: launcher,
-      otzariaManager: otzariaManager,
+      otzariaManager: otzariaManager ??
+          _linuxOtzaria(
+            dataDir: tempDir.path,
+            stateDir: tempDir.path,
+            launcher: launcher,
+          ),
       libraryManager: libraryManager,
       pluginsManager: pluginsManager,
       launcherUpdater: launcherUpdater,
@@ -1257,6 +1279,11 @@ void main() {
           readOnly: true,
           runningLocator: const _NeverRunningLocator(),
           otzariaLauncher: const _FailingLauncher(),
+          otzariaManager: _linuxOtzaria(
+            dataDir: drive.path,
+            stateDir: machine.path,
+            launcher: const _FailingLauncher(),
+          ),
         );
         sessions.add(s);
         s.otzaria.currentVersion = '0.9.90';
@@ -1321,6 +1348,11 @@ void main() {
               runningLocator: const _NeverRunningLocator(),
               noticesStore: notices,
               otzariaLauncher: const _FailingLauncher(),
+              otzariaManager: _linuxOtzaria(
+                dataDir: tempDir.path,
+                stateDir: tempDir.path,
+                launcher: const _FailingLauncher(),
+              ),
               searchFeedback: SearchFeedbackController(
                 transport: SearchFeedbackTransport(p.join(tempDir.path, 'sf')),
                 resolveSource: () async => null,
@@ -1359,6 +1391,11 @@ void main() {
             runningLocator: const _NeverRunningLocator(),
             noticesStore: notices,
             otzariaLauncher: const _FailingLauncher(),
+            otzariaManager: _linuxOtzaria(
+              dataDir: tempDir.path,
+              stateDir: tempDir.path,
+              launcher: const _FailingLauncher(),
+            ),
             searchFeedback: SearchFeedbackController(
               transport: SearchFeedbackTransport(p.join(tempDir.path, 'sf')),
               resolveSource: () async => null,
@@ -1733,6 +1770,207 @@ void main() {
         expect(launcher.calls, contains('stopped'));
         expect(prompts.calls, isNot(contains('noSyncSelection')));
         expect(marker().existsSync(), isFalse);
+      });
+
+      test('בדיקת הכלי שנכשלה בעלייה נבדקת שוב לפני ההורדה', () async {
+        final launcher = _SteppedLauncher()
+          ..ready = null
+          ..online = 'v9.0.0'
+          ..peekFailures = 1;
+        final s = await started(launcher);
+        await s.launcherUpdate.checkOnline();
+        expect(s.launcherUpdate.onlineCheckError, isNotNull);
+        expect(s.launcherUpdate.hasOnlineUpdate, isFalse);
+        launcher.gate.complete();
+        prompts.launcherInstallAnswer = false;
+        await s.launcherFirst(AfterLauncherUpdate.download);
+        expect(launcher.calls, contains('downloaded'));
+      });
+
+      group('בדיקות כלי חופפות', () {
+        Future<void> until(bool Function() done) async {
+          for (var i = 0; i < 200 && !done(); i++) {
+            WidgetsBinding.instance
+              ..handleBeginFrame(null)
+              ..handleDrawFrame();
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+          }
+          expect(done(), isTrue);
+        }
+
+        Future<(AppSession, _Engines, _SteppedLauncher)> ready() async {
+          await settings.update(settings.settings.copyWith(
+            syncApp: false,
+            syncLibrary: true,
+            syncPlugins: false,
+            semanticDownload: SemanticDownloadPreference.never,
+          ));
+          final engines = _Engines(tempDir.path);
+          engines.library.downloadGate = Completer<void>();
+          final launcher = _SteppedLauncher()
+            ..ready = null
+            ..queuePeeks = true;
+          final s = session(
+            launcherUpdater: launcher,
+            otzariaManager: engines.otzaria,
+            libraryManager: engines.library,
+            pluginsManager: engines.plugins,
+          )..start();
+          await settled(s);
+          s.otzaria
+            ..currentVersion = 'v1'
+            ..status = OtzariaModuleStatus.upToDate;
+          s.library
+            ..status = LibraryModuleStatus.upToDate
+            ..onlineLatestVersion = 9
+            ..onlineCheckedAt = DateTime.now();
+          s.launcherUpdate
+            ..onlineCheckedAt = DateTime.now()
+            ..onlineCheckError = 'earlier timeout';
+          expect(homeViewModelOf(s).guidance.primary,
+              GuidancePrimary.downloadToDrive);
+          expect(s.downloadBlocked, isFalse);
+          return (s, engines, launcher);
+        }
+
+        for (final newestFirst in [false, true]) {
+          test('בדוק עכשיו בזמן ההמתנה — חדשה קודם: $newestFirst', () async {
+            final (s, engines, launcher) = await ready();
+            final download = s.launcherFirst(AfterLauncherUpdate.download);
+            await until(() => launcher.queuedPeeks.length == 1);
+            await s.launcherFirst(AfterLauncherUpdate.download);
+            expect(launcher.peeks, 1);
+            expect(s.updatingLauncherFirst, isTrue);
+            final home = homeViewModelOf(s);
+            expect(home.checkingNow, isFalse);
+            expect(home.readOnly || home.checkBlocked, isFalse);
+            expect(
+                home.guidance.primary, isNot(GuidancePrimary.taskInProgress));
+            final recheck = s.checkNow();
+            await until(() => launcher.queuedPeeks.length == 2);
+
+            final firstIndex = newestFirst ? 1 : 0;
+            launcher.queuedPeeks[firstIndex].complete(
+                _SteppedLauncher._release(newestFirst ? 'v9.0.0' : 'v8.0.0'));
+            await Future<void>.delayed(Duration.zero);
+            final launcherStarted = launcher.calls.contains('download');
+            final ordinaryDownloadStarted = s.tasks.downloadInProgress;
+            launcher.queuedPeeks[1 - firstIndex].complete(
+                _SteppedLauncher._release(newestFirst ? 'v8.0.0' : 'v9.0.0'));
+            await until(() =>
+                launcher.calls.contains('download') ||
+                engines.library.downloadCalls > 0);
+            final libraryBeforeLauncher = engines.library.downloadCalls;
+            launcher.gate.complete();
+            engines.library.downloadGate!.complete();
+            await Future.wait([download, recheck]);
+
+            expect(launcherStarted, newestFirst);
+            expect(ordinaryDownloadStarted, isFalse);
+            expect(libraryBeforeLauncher, 0);
+            expect(launcher.calls.where((call) => call == 'download'),
+                hasLength(1));
+            expect(launcher.calls, contains('downloaded'));
+            expect(engines.library.downloadCalls, 1);
+            expect(s.launcherUpdate.onlineRelease?.tagName, 'v9.0.0');
+            expect(s.updatingLauncherFirst, isFalse);
+          });
+        }
+
+        test('כשל בבדיקה החדשה מאפשר להמשיך בלי עדכון הכלי', () async {
+          final (s, engines, launcher) = await ready();
+          final download = s.launcherFirst(AfterLauncherUpdate.download);
+          await until(() => launcher.queuedPeeks.length == 1);
+          final recheck = s.checkNow();
+          await until(() => launcher.queuedPeeks.length == 2);
+          launcher.queuedPeeks[0].complete(_SteppedLauncher._release('v8.0.0'));
+          await Future<void>.delayed(Duration.zero);
+          final ordinaryDownloadStarted = s.tasks.downloadInProgress;
+          launcher.queuedPeeks[1].completeError(
+              const LauncherUpdateException('latest request failed'));
+          await until(() => engines.library.downloadCalls > 0);
+          launcher.gate.complete();
+          engines.library.downloadGate!.complete();
+          await Future.wait([download, recheck]);
+
+          expect(ordinaryDownloadStarted, isFalse);
+          expect(launcher.calls, isNot(contains('download')));
+          expect(engines.library.downloadCalls, 1);
+          expect(s.launcherUpdate.onlineCheckError,
+              contains('latest request failed'));
+          expect(s.updatingLauncherFirst, isFalse);
+        });
+
+        test('סגירה בזמן ההמתנה לבדיקה החדשה אינה מתחילה הורדות', () async {
+          final (s, engines, launcher) = await ready();
+          final download = s.launcherFirst(AfterLauncherUpdate.download);
+          await until(() => launcher.queuedPeeks.length == 1);
+          final recheck = s.checkNow();
+          await until(() => launcher.queuedPeeks.length == 2);
+          expect(await s.confirmClose(), isTrue);
+          launcher.queuedPeeks[0].complete(_SteppedLauncher._release('v8.0.0'));
+          launcher.queuedPeeks[1].complete(_SteppedLauncher._release('v9.0.0'));
+          launcher.gate.complete();
+          engines.library.downloadGate!.complete();
+          await Future.wait([download, recheck]);
+
+          expect(launcher.calls, isEmpty);
+          expect(engines.library.downloadCalls, 0);
+          expect(s.updatingLauncherFirst, isFalse);
+        });
+      });
+
+      test('גרסה שכבר מוכנה להתקנה — אין בדיקה חוזרת ברשת', () async {
+        final launcher = _SteppedLauncher();
+        final s = await started(launcher);
+        final before = launcher.peeks;
+        prompts.launcherInstallAnswer = false;
+        await s.launcherFirst(AfterLauncherUpdate.download);
+        expect(launcher.peeks, before);
+        expect(prompts.calls, contains('confirmLauncherInstall'));
+      });
+
+      test('בדיקה טרייה שהצליחה — אין בדיקה חוזרת', () async {
+        final launcher = _SteppedLauncher()
+          ..ready = null
+          ..online = 'v9.0.0';
+        final s = await started(launcher);
+        await s.launcherUpdate.checkOnline();
+        expect(s.launcherUpdate.hasOnlineUpdate, isTrue);
+        final before = launcher.peeks;
+        launcher.gate.complete();
+        prompts.launcherInstallAnswer = false;
+        await s.launcherFirst(AfterLauncherUpdate.download);
+        expect(launcher.peeks, before);
+        expect(launcher.calls, contains('downloaded'));
+      });
+
+      test('כונן מוגן — אין בדיקה חוזרת ברשת', () async {
+        await settings.update(settings.settings.copyWith(
+          syncApp: false,
+          syncLibrary: false,
+          syncPlugins: false,
+        ));
+        final launcher = _SteppedLauncher()
+          ..ready = null
+          ..online = 'v9.0.0';
+        final s = session(launcherUpdater: launcher, readOnly: true)..start();
+        await settled(s);
+        await s.launcherFirst(AfterLauncherUpdate.download);
+        expect(launcher.peeks, 0);
+        expect(launcher.calls, isNot(contains('download')));
+      });
+
+      test('עדכון במחשב הזה אינו בודק את הכלי ברשת', () async {
+        final launcher = _SteppedLauncher()
+          ..ready = null
+          ..online = 'v9.0.0'
+          ..peekFailures = 1;
+        final s = await started(launcher);
+        final before = launcher.peeks;
+        await s.launcherFirst(AfterLauncherUpdate.updateHere);
+        expect(launcher.peeks, before);
+        expect(launcher.calls, isNot(contains('download')));
       });
 
       for (final then in AfterLauncherUpdate.values) {
@@ -2924,9 +3162,26 @@ class _SteppedLauncher implements LauncherSelfUpdater {
   /// גרסה שבאתר ועוד לא ירדה — `launcherFirst` מוריד אותה לפני ההתקנה.
   String? online;
 
+  /// כמה בדיקות ראשונות ברשת ייכשלו, ואיתן ספירת הבדיקות.
+  int peekFailures = 0;
+  int peeks = 0;
+  bool queuePeeks = false;
+  final queuedPeeks = <Completer<LauncherRelease?>>[];
+
   @override
-  Future<LauncherRelease?> peekLatestOnline() async =>
-      online == null ? null : _release(online!);
+  Future<LauncherRelease?> peekLatestOnline() async {
+    peeks++;
+    if (queuePeeks) {
+      final next = Completer<LauncherRelease?>();
+      queuedPeeks.add(next);
+      return next.future;
+    }
+    if (peekFailures > 0) {
+      peekFailures--;
+      throw const LauncherUpdateException('offline');
+    }
+    return online == null ? null : _release(online!);
+  }
 
   @override
   Future<LauncherRelease> withChangelog(LauncherRelease release) async =>
@@ -3075,7 +3330,13 @@ class _RecordingStartupSession extends AppSession {
     required super.prompts,
     super.runningLocator,
     super.noticesStore,
-  });
+  }) : super(
+          otzariaManager: _linuxOtzaria(
+            dataDir: dataDir,
+            stateDir: stateDir,
+            runningLocator: runningLocator,
+          ),
+        );
 
   final checks = <String>[];
 
@@ -3096,7 +3357,13 @@ class _OfflineCheckSession extends AppSession {
     required super.prompts,
     super.runningLocator,
     super.noticesStore,
-  });
+  }) : super(
+          otzariaManager: _linuxOtzaria(
+            dataDir: dataDir,
+            stateDir: stateDir,
+            runningLocator: runningLocator,
+          ),
+        );
 
   @override
   Future<void> checkAll() async {}
@@ -3128,7 +3395,11 @@ class _TrackedSettings extends SettingsController {
 }
 
 class _QuietOtzaria extends OtzariaManager {
-  _QuietOtzaria(String dir) : super(dataDir: dir);
+  _QuietOtzaria(String dir)
+      : super(
+          dataDir: dir,
+          platform: Platform.isLinux ? OtzariaTargetPlatform.windows : null,
+        );
 
   @override
   Future<void> downloadToMirror({
