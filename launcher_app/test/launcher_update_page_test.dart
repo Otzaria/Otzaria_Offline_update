@@ -37,6 +37,7 @@ void main() {
 
   Widget page({
     bool readOnly = false,
+    bool mirrorLocked = false,
     bool busy = false,
     bool admin = true,
     bool checking = false,
@@ -44,6 +45,7 @@ void main() {
       LauncherUpdatePage(
         controller: c,
         readOnly: readOnly,
+        mirrorLocked: mirrorLocked,
         busy: busy,
         onCheck: busy ? null : () => calls.add('check'),
         checking: checking,
@@ -136,6 +138,16 @@ void main() {
     await pumpScreen(tester, page(readOnly: true));
     expect(primary(tester).onPressed, isNull);
     expect(find.text(p.selfReadOnly), findsOneWidget);
+  });
+
+  testWidgets('מראה נעולה — ההורדה מושבתת, בנוסח "נעול לעדכונים"', (
+    tester,
+  ) async {
+    c.onlineRelease = _release;
+    await pumpScreen(tester, page(readOnly: true, mirrorLocked: true));
+    expect(primary(tester).onPressed, isNull);
+    expect(find.text(p.selfMirrorLocked), findsOneWidget);
+    expect(find.text(p.selfReadOnly), findsNothing);
   });
 
   testWidgets('בזמן משימה — ההתקנה ממתינה לסופה, עם הסבר', (tester) async {

@@ -42,8 +42,11 @@ void main() {
 
       expect(paths.dataDir, expectedDataDir());
       expect(overrides.createdDirs, contains(expectedDataDir()));
-      expect(overrides.createdFiles,
-          [p.join(expectedDataDir(), '.write-test-$pid')]);
+      // ההפניה לארגז החול גורמת גם ל-mirror/ להיראות קיימת, ולכן נבדקת גם היא.
+      expect(overrides.createdFiles, [
+        p.join(expectedDataDir(), '.write-test-$pid'),
+        p.join(expectedDataDir(), 'mirror', '.write-test-$pid'),
+      ]);
       expect(sandbox.listSync(), isEmpty);
     });
 
@@ -792,6 +795,9 @@ class _UnwritableDirectory implements Directory {
   @override
   final String path;
   final String _message;
+
+  @override
+  Future<bool> exists() async => false;
 
   @override
   Future<Directory> create({bool recursive = false}) =>

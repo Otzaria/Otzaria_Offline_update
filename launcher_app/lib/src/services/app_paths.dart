@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:error_reports_manager/error_reports_manager.dart'
+    show AppReportService, DirectoryReportOutbox, SearchFeedbackTransport;
 import 'package:ffi/ffi.dart';
 import 'package:otzaria_downloads/otzaria_downloads.dart'
     show writeBytesAtomically;
@@ -8,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:win32/win32.dart';
 
 import '../self_update/launcher_install_layout.dart';
+import 'machine_state_migration.dart';
 
 enum AppPathsFailure {
   cannotWrite,
@@ -15,6 +18,7 @@ enum AppPathsFailure {
   appTranslocated,
   runningFromTemp,
   systemDrive,
+  stateMigration,
 }
 
 class AppPathsException implements Exception {
@@ -41,7 +45,9 @@ class AppPaths {
     required this.stateDir,
     this.readOnly = false,
     this.driveFull = false,
-  });
+    this.mirrorLocked = false,
+    String? prefsDir,
+  }) : _prefsDir = prefsDir;
 
   /// שם התיקייה שנוצרת לצד קובץ ההרצה.
   static const String dirName = 'OtzariaData';
@@ -61,6 +67,16 @@ class AppPaths {
   final bool readOnly;
 
   final bool driveFull;
+
+  /// `mirror/` נעולה אך תיקיות הנתונים (לוגים, דוחות, משוב) כתיבות: [readOnly]
+  /// נשאר `true` ומכבה הורדות, אבל איסוף הדוחות והמשוב פעילים.
+  final bool mirrorLocked;
+
+  final String? _prefsDir;
+
+  /// היכן יושבים `launcher_settings.json` ו-FAQ. במראה נעולה השורש נעול,
+  /// ולכן הם במחשב ([stateDir] עצמו נשאר בכונן, כדי שהדוחות יעברו איתו).
+  String get prefsDir => _prefsDir ?? stateDir;
 
   /// שלושת ה-manifest שכל אחד מהם לבדו מוכיח שהמראה נמלאה בפועל.
   static const List<List<String>> _mirrorManifests = [
@@ -113,31 +129,42 @@ class AppPaths {
       );
     }
     final failure = await _probeWritable(dataDir);
-    if (failure == null) {
+    final mirrorFailure = await _mirrorWriteFailure(dataDir);
+    final mirrorLocked = mirrorFailure != null;
+    if (failure == null && !mirrorLocked) {
       return AppPaths(dataDir: dataDir, stateDir: dataDir);
     }
 
-    final diskFull = _isDiskFull(failure);
+    final writeFailure = failure ?? mirrorFailure!;
+    final diskFull = _isDiskFull(writeFailure);
     if (await _hasMirror(dataDir)) {
-      final stateDir = machineStateDir(
+      final machineDir = machineStateDir(
         environment ?? Platform.environment,
         isWindows: Platform.isWindows,
         isMacOS: macOS,
       );
-      if (stateDir != null && await _probeWritable(stateDir) == null) {
+      if (machineDir != null && await _probeWritable(machineDir) == null) {
+        if (mirrorLocked && !diskFull && await _dataFoldersWritable(dataDir)) {
+          return AppPaths(
+            dataDir: dataDir,
+            stateDir: dataDir,
+            readOnly: true,
+            mirrorLocked: true,
+            prefsDir: machineDir,
+          );
+        }
         return AppPaths(
           dataDir: dataDir,
-          stateDir: stateDir,
+          stateDir: machineDir,
           readOnly: true,
           driveFull: diskFull,
         );
       }
     }
-
     throw AppPathsException(
       message: diskFull
           ? AppL10n.strings.setupError.driveFull
-          : writeFailureMessage(failure, isMacOS: macOS),
+          : writeFailureMessage(writeFailure, isMacOS: macOS),
       attemptedDir: dataDir,
       kind: diskFull ? AppPathsFailure.driveFull : AppPathsFailure.cannotWrite,
     );
@@ -247,18 +274,59 @@ class AppPaths {
   }
 
   static Future<FileSystemException?> _probeWritable(String dir) async {
-    final File probe;
+    File? probe;
     try {
       await Directory(dir).create(recursive: true);
       probe = File(p.join(dir, '.write-test-$pid'));
       await probe.writeAsString('ok', flush: true);
+      return null;
     } on FileSystemException catch (e) {
       return e;
+    } finally {
+      // גם כתיבה שנכשלה באמצע (דיסק מלא) עלולה להשאיר קובץ ב-mirror/.
+      try {
+        await probe?.delete();
+      } catch (_) {
+        // best-effort: מחיקה שנכשלה אינה כשל בדיקה.
+      }
     }
+  }
+
+  /// `mirror/` קיימת ואי אפשר לכתוב בה. חסרה = אפשר ליצור אותה, ולא נעולה.
+  static Future<FileSystemException?> _mirrorWriteFailure(
+      String dataDir) async {
+    final mirror = p.join(dataDir, 'mirror');
     try {
-      await probe.delete();
-    } on FileSystemException catch (_) {}
-    return null;
+      if (!await Directory(mirror).exists()) return null;
+    } on FileSystemException catch (error) {
+      return error;
+    }
+    // כשל חולף (אנטי-וירוס, הפרת שיתוף) בכונן כתיב לא יהפוך אותו לנעול.
+    FileSystemException? failure;
+    for (var attempt = 0; attempt < mirrorProbeAttempts; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(mirrorProbeBackoff * attempt);
+      }
+      failure = await _probeWritable(mirror);
+      if (failure == null) return null;
+    }
+    return failure;
+  }
+
+  static const int mirrorProbeAttempts = 3;
+  static const Duration mirrorProbeBackoff = Duration(milliseconds: 100);
+
+  /// התיקיות שהמשגר כותב אליהן במחשב לא-מקוון: לוג ומצב, דוחות, משוב חיפוש.
+  static Future<bool> _dataFoldersWritable(String dataDir) async {
+    for (final dir in [
+      p.join(dataDir, logsDirName),
+      DirectoryReportOutbox.dirIn(dataDir),
+      AppReportService.dirIn(dataDir),
+      SearchFeedbackTransport.dirIn(dataDir),
+    ]) {
+      if (await _probeWritable(dir) != null) return false;
+    }
+    return true;
   }
 
   /// `true` אם המראה נושאת תוכן — קיומו של manifest אחד מספיק. תיקייה ריקה
@@ -302,7 +370,7 @@ class AppPaths {
         try {
           await source.rename(target.path);
         } on FileSystemException {
-          await source.copy(target.path);
+          await writeBytesAtomically(target.path, await source.readAsBytes());
           await source.delete();
         }
       } catch (_) {
@@ -312,11 +380,37 @@ class AppPaths {
     }
   }
 
+  /// המצב מתמזג לפי רשומה; דוחות ממתינים עוברים לכונן רק אחרי כתיבה בטוחה.
+  /// כשל עוצר לפני פתיחת החנויות ושליחת התור, כדי שההפעלה הבאה תוכל להשלים.
+  Future<void> seedStateFromMachine() async {
+    if (!mirrorLocked || prefsDir == stateDir) return;
+    try {
+      await MachineStateMigration(
+        sourceDir: prefsDir,
+        targetDir: stateDir,
+        fileNames: stateFileNames,
+      ).run();
+      final reports =
+          AppReportService(directory: AppReportService.dirIn(stateDir));
+      try {
+        await reports.migratePendingFrom(AppReportService.dirIn(prefsDir));
+      } finally {
+        reports.dispose();
+      }
+    } catch (error) {
+      throw AppPathsException(
+        message: AppL10n.strings.setupError.stateMigrationFailed('$error'),
+        attemptedDir: stateFilesDir,
+        kind: AppPathsFailure.stateMigration,
+      );
+    }
+  }
+
   /// הגדרות המחשב מועתקות מהכונן הנעול רק אם טרם נשמרו כאן.
   Future<void> seedPreferences() async {
     if (!readOnly) return;
     const name = 'launcher_settings.json';
-    final target = File(p.join(stateDir, name));
+    final target = File(p.join(prefsDir, name));
     try {
       if (await target.exists()) return;
       final source = File(p.join(dataDir, name));

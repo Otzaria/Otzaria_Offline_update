@@ -25,6 +25,7 @@ class SetupErrorScreen extends StatelessWidget {
       AppPathsFailure.appTranslocated => t.appTranslocatedTitle,
       AppPathsFailure.runningFromTemp => t.runningFromTempTitle,
       AppPathsFailure.systemDrive => t.systemDriveTitle,
+      AppPathsFailure.stateMigration => t.stateMigrationTitle,
     };
     final generic = error.kind == AppPathsFailure.cannotWrite;
     final muted = AppTextStyles.body.copyWith(color: cs.onSurfaceVariant);

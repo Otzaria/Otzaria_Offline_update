@@ -139,6 +139,7 @@ class GuidanceFacts {
   const GuidanceFacts({
     this.readOnly = false,
     this.driveFull = false,
+    this.mirrorLocked = false,
     this.otzariaStatus = AppStatusFact.upToDate,
     this.otzariaInstalled = true,
     this.otzariaMirrorVersion,
@@ -173,6 +174,7 @@ class GuidanceFacts {
 
   final bool readOnly;
   final bool driveFull;
+  final bool mirrorLocked;
   final AppStatusFact otzariaStatus;
   final bool otzariaInstalled;
   final String? otzariaMirrorVersion;
@@ -265,6 +267,7 @@ class HomeGuidance {
     this.smartSearch = SmartSearchFact.clear,
     this.readOnly = false,
     this.driveFull = false,
+    this.mirrorLocked = false,
   });
 
   final GuidancePrimary primary;
@@ -301,6 +304,7 @@ class HomeGuidance {
   final bool otzariaOpenBlocksUpdate;
   final bool readOnly;
   final bool driveFull;
+  final bool mirrorLocked;
 
   @override
   String toString() => 'HomeGuidance($primary, $secondary, here: $hereItems, '
@@ -442,6 +446,7 @@ HomeGuidance deriveHomeGuidance(GuidanceFacts f) {
           open && here.any((i) => i != GuidanceItem.plugins),
       readOnly: f.readOnly,
       driveFull: f.driveFull,
+      mirrorLocked: f.mirrorLocked,
       smartSearch: switch (primary) {
         GuidancePrimary.smartSearch => f.smartSearch,
         GuidancePrimary.newerHereThanDrive

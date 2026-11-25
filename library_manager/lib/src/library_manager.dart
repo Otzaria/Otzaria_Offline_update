@@ -136,6 +136,7 @@ class LibraryManager {
     String? stateDir,
     this.allowPrerelease = false,
     this.personalUpdateMode = false,
+    this.mirrorReadOnly = false,
     Future<String?> Function()? otzariaLaunchPath,
     Future<String?> Function()? otzariaAppVersion,
     Future<int?> Function()? mirroredReadableDbSchema,
@@ -172,7 +173,12 @@ class LibraryManager {
        _freeBytesFor = freeBytesFor ?? DiskSpaceProbe.freeBytesFor,
        _segmentThresholdBytes = segmentThresholdBytes,
        _cloudClient = releaseClient ?? RecentLibraryReleasesClient(),
-       _applier = applier ?? LibraryUpdateApplier(processGuard: processGuard) {
+       _applier =
+           applier ??
+           LibraryUpdateApplier(
+             processGuard: processGuard,
+             mirrorReadOnly: mirrorReadOnly,
+           ) {
     useLibraryUpdaterL10n();
     _locator = LibraryDbLocator(
       stateStore: _stateStore,
@@ -190,6 +196,10 @@ class LibraryManager {
   /// אפשר רק להתקין (`AppPaths.readOnly` בלאנצ'ר). ברירת המחדל היא [dataDir]
   /// עצמה, כלומר ההתנהגות שהייתה כאן תמיד.
   final String dataDir;
+
+  /// `mirror/` אינה כתיבה במחשב הזה: נכס שנכשל ב-sha256 אינו נמחק ואין
+  /// נוגעים בסימון האימות שלו — ההודעה לבדה אומרת לאן להפנות.
+  final bool mirrorReadOnly;
 
   /// `true` = הערוץ "כולל pre-release". ברירת המחדל `false` — release רגיל
   /// ב-GitHub נחשב יציב, pre-release נחשב לא יציב. ניתן לשינוי בזמן ריצה
@@ -704,6 +714,7 @@ class LibraryManager {
             scheduler: _scheduler,
             removableProbe: _removableProbe,
             writeProbe: _writeProbe,
+            mirrorReadOnly: mirrorReadOnly,
           );
       try {
         String? tag;
@@ -1333,7 +1344,8 @@ class LibraryManager {
       return false;
     }
     final semantic =
-        semanticAssetsFactory?.call(_scheduler) ?? SemanticSearchAssets();
+        semanticAssetsFactory?.call(_scheduler) ??
+        SemanticSearchAssets(mirrorReadOnly: mirrorReadOnly);
     try {
       final pending = await semantic.peekPending(
         mirrorDir: semanticMirrorDir,
@@ -1758,7 +1770,8 @@ class LibraryManager {
     final settings = await _semanticSettings(locator);
     final support = await _semanticSupport(locator);
     final semantic =
-        semanticAssetsFactory?.call(_scheduler) ?? SemanticSearchAssets();
+        semanticAssetsFactory?.call(_scheduler) ??
+        SemanticSearchAssets(mirrorReadOnly: mirrorReadOnly);
     var semanticRecovered = false;
     SmartSearchStatus semanticStatus;
     SemanticEngineIncompatibleException? semanticIncompatibility;
@@ -2368,7 +2381,10 @@ class LibraryManager {
         await _throwIfOtzariaRunning();
         final semantic =
             semanticAssetsFactory?.call(_scheduler) ??
-            SemanticSearchAssets(engineFactory: semanticEngineFactory);
+            SemanticSearchAssets(
+              engineFactory: semanticEngineFactory,
+              mirrorReadOnly: mirrorReadOnly,
+            );
         final support = await _semanticSupport(_locator);
         var chainFailed = false;
         var baseInstalled = false;

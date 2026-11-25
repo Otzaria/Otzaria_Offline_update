@@ -115,10 +115,11 @@ void main() {
         controller((_) async => http.Response('{"success":true}', 200));
     addTearDown(plugins.dispose);
     addTearDown(reports.dispose);
-    Widget screen(bool readOnly) => PluginsScreen(
+    Widget screen(bool readOnly, {bool mirrorLocked = false}) => PluginsScreen(
           controller: plugins,
           reports: reports,
           readOnly: readOnly,
+          mirrorLocked: mirrorLocked,
           otzariaInstalled: false,
           online: false,
           detailId: plugin.id,
@@ -128,6 +129,8 @@ void main() {
     expect(find.text(stringsOf().plugins.reportButton), findsOneWidget);
     await pumpScreen(tester, screen(true));
     expect(find.text(stringsOf().plugins.reportButton), findsNothing);
+    await pumpScreen(tester, screen(true, mirrorLocked: true));
+    expect(find.text(stringsOf().plugins.reportButton), findsOneWidget);
   });
 
   for (final language in [AppLanguage.hebrew, AppLanguage.english]) {

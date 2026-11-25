@@ -1623,6 +1623,50 @@ void main() {
     });
   });
 
+  group('mirrorReadOnly reaches the applier', () {
+    for (final readOnly in [true, false]) {
+      test(
+        'a full-download asset failing sha256 is '
+        '${readOnly ? 'kept' : 'deleted'} with mirrorReadOnly: $readOnly',
+        () async {
+          if (bindings == null) {
+            markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+            return;
+          }
+          await installExistingDb(5, appliedTag: 'v5');
+          await writeMirror(
+            tag: 'v6',
+            compressedDb: compressWithZstd(bindings, buildRealDb(6)),
+          );
+          final manifest = File(p.join(mirrorDir, 'releases.json'));
+          final json = jsonDecode(await manifest.readAsString()) as Map;
+          final assets = ((json['releases'] as List).single as Map)['assets'];
+          (assets as List).single['digest'] = 'sha256:${'a' * 64}';
+          await manifest.writeAsString(jsonEncode(json));
+          final asset = File(
+            p.join(mirrorDir, 'assets', 'v6', 'seforim.db.zst'),
+          );
+
+          await _withoutNetwork((_) async {
+            final manager = LibraryManager(
+              dataDir: dataDir,
+              operatingSystem: 'linux',
+              processGuard: const _NeverRunningGuard(),
+              environment: hermeticEnvironment(),
+              mirrorReadOnly: readOnly,
+            );
+            addTearDown(manager.dispose);
+            final check = await manager.checkForUpdate();
+            expect(check.dbUpdateAvailable, isTrue);
+            await expectLater(manager.applyUpdate(check), throwsA(anything));
+          });
+
+          expect(asset.existsSync(), readOnly);
+        },
+      );
+    }
+  });
+
   group('smart-search on an unchanged local library', () {
     for (final mirroredVersion in [0, 29, 30]) {
       test('uses local v30 with a v$mirroredVersion library mirror', () async {

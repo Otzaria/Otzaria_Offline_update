@@ -82,6 +82,7 @@ void main() {
     VoidCallback? onUpdateHere,
     Future<void> Function()? onRequestReindex,
     bool readOnly = false,
+    bool mirrorLocked = false,
   }) =>
       LibraryScreen(
         library: library,
@@ -93,6 +94,7 @@ void main() {
         onGoToSettings: () {},
         onUpdateHere: onUpdateHere,
         readOnly: readOnly,
+        mirrorLocked: mirrorLocked,
       );
 
   /// "מתקדם" מקופל כברירת מחדל. בלי pumpAndSettle: מצב "בודק" מסתובב.
@@ -1254,6 +1256,30 @@ void main() {
       expect(chosen, [true, false]);
     });
 
+    testWidgets('מראה נעולה — רשימת המחשבים בנוסח "נעול לעדכונים"', (
+      tester,
+    ) async {
+      await tester.runAsync(
+        () => settings.update(const AppSettings(personalUpdateMode: true)),
+      );
+      await pumpScreen(
+        tester,
+        SettingsScreen(
+          controller: settings,
+          onOpenLog: () {},
+          launcherVersion: launcherVersion,
+          readOnly: true,
+          mirrorLocked: true,
+          personalMachines: [machine('a|me', 145, name: 'YOSEF-LAPTOP')],
+          onRemoveMachine: (_) {},
+          onRegisterHere: () {},
+        ),
+      );
+      final t = stringsOf().settings;
+      expect(find.text(t.personalMachinesMirrorLocked), findsOneWidget);
+      expect(find.text(t.personalMachinesReadOnly), findsNothing);
+    });
+
     testWidgets('כונן מוגן — "הסרה" ו"רישום" מושבתים, עם הסבר', (
       tester,
     ) async {
@@ -2169,6 +2195,20 @@ void main() {
     );
     expect(find.text(stringsOf().libraryScreen.pickDbButton), findsOneWidget);
     expect(find.text(p.libUpdateButton), findsNothing);
+  });
+
+  testWidgets('מראה נעולה: הרישום מושבת, בנוסח "נעול לעדכונים"', (
+    tester,
+  ) async {
+    library
+      ..personalUpdateMode = true
+      ..status = LibraryModuleStatus.personalTargetElsewhere
+      ..personalFromVersion = 145;
+    await pumpScreen(tester, libraryPage(readOnly: true, mirrorLocked: true));
+
+    final pages = stringsOf().pages;
+    expect(find.textContaining(pages.libPersonalMirrorLocked), findsOneWidget);
+    expect(find.textContaining(pages.libPersonalReadOnly), findsNothing);
   });
 
   testWidgets('כונן מוגן: רישום המחשב לעדכון אישי מושבת, עם הסבר', (

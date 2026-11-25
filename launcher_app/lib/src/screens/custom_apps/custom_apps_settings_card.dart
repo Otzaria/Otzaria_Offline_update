@@ -13,6 +13,7 @@ class CustomAppsSettingsCard extends StatelessWidget {
     required this.onOpenManager,
     this.readOnly = false,
     this.driveFull = false,
+    this.mirrorLocked = false,
   });
 
   final CustomAppsController controller;
@@ -22,6 +23,7 @@ class CustomAppsSettingsCard extends StatelessWidget {
 
   final bool readOnly;
   final bool driveFull;
+  final bool mirrorLocked;
 
   @override
   Widget build(BuildContext context) {
@@ -43,9 +45,11 @@ class CustomAppsSettingsCard extends StatelessWidget {
             title: t.manageRowTitle,
             // כונן מוגן: כל פעולת ניהול כותבת לכונן — מושבת, והפירוט אומר למה.
             subtitle: readOnly
-                ? driveFull
-                    ? ro.customAppsManageDisabledDriveFull
-                    : ro.customAppsManageDisabled
+                ? mirrorLocked
+                    ? ro.customAppsManageDisabledMirrorLocked
+                    : driveFull
+                        ? ro.customAppsManageDisabledDriveFull
+                        : ro.customAppsManageDisabled
                 : controller.hasApps
                     ? t.manageRowSubtitle(controller.apps.length)
                     : t.emptyHint,

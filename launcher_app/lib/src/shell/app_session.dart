@@ -38,6 +38,7 @@ import '../services/app_logger.dart';
 import '../services/app_paths.dart';
 import '../services/background_priority.dart';
 import '../services/byte_size.dart';
+import '../services/drive_mode.dart';
 import '../services/elevation.dart';
 import '../services/file_reveal.dart';
 import '../services/mirror_junk_sweeper.dart';
@@ -68,6 +69,8 @@ class AppSession extends ChangeNotifier {
     required this.prompts,
     this.readOnly = false,
     this.driveFull = false,
+    this.mirrorLocked = false,
+    String? prefsDir,
     this.runningLocator = const RunningOtzariaLocator(),
     NoticesSeenStore? noticesStore,
     this.appReports,
@@ -84,7 +87,8 @@ class AppSession extends ChangeNotifier {
     @visibleForTesting LauncherSelfUpdater? launcherUpdater,
     @visibleForTesting this.closeDeliveryPatience = const Duration(seconds: 10),
     @visibleForTesting WriteBehindPool? driveWrites,
-  })  : _noticesStore = noticesStore,
+  })  : _prefsDir = prefsDir,
+        _noticesStore = noticesStore,
         _injectedDriveWrites = driveWrites,
         _injectedSleepInhibitor = sleepInhibitor,
         _backgroundPriority =
@@ -93,6 +97,7 @@ class AppSession extends ChangeNotifier {
       dataDir: dataDir,
       stateDir: stateFilesDir,
       readOnly: readOnly,
+      mirrorLocked: mirrorLocked,
       manager: androidManager,
     )
       ..blockedElsewhere = (() => exitPending || _closing)
@@ -120,6 +125,7 @@ class AppSession extends ChangeNotifier {
               ? _otzaria.latestVersion
               : null,
       instanceLock: const OtzariaInstanceLock(),
+      mirrorReadOnly: readOnly,
       manager: libraryManager,
     )..addListener(_onChange);
     _plugins = PluginsModuleController(
@@ -165,7 +171,7 @@ class AppSession extends ChangeNotifier {
         LauncherUpdateController(dataDir: dataDir, updater: launcherUpdater)
           ..addListener(_onChange);
     _faq = FaqController(
-      dataDir: stateDir,
+      dataDir: this.prefsDir,
       readOnlyDriveDir: readOnly ? dataDir : null,
     );
     _errorReports = (errorReports ??
@@ -195,8 +201,21 @@ class AppSession extends ChangeNotifier {
 
   String get stateFilesDir => p.join(stateDir, AppPaths.logsDirName);
 
+  final String? _prefsDir;
+
+  /// היכן ההגדרות וה-FAQ — ראו [AppPaths.prefsDir].
+  String get prefsDir => _prefsDir ?? stateDir;
+
+  /// מקור ההורדות כבוי (כונן מוגן או `mirror/` נעולה).
   final bool readOnly;
   final bool driveFull;
+
+  /// `mirror/` נעולה אך תיקיות הנתונים כתיבות — ראו [AppPaths.mirrorLocked].
+  final bool mirrorLocked;
+
+  /// איסוף ושליחה של דוחות ומשוב כבויים רק כשגם הנתונים אינם כתיבים.
+  bool get reportsBlocked =>
+      reportsBlockedFor(readOnly: readOnly, mirrorLocked: mirrorLocked);
   final SettingsController settings;
   final SessionPrompts prompts;
   final RunningOtzariaLocator runningLocator;
@@ -437,7 +456,7 @@ class AppSession extends ChangeNotifier {
     runDialog: prompts.runDialog,
     perform: recountReportsToCollect,
     onResume: () {
-      if (!readOnly) _feedbackSync.resume();
+      if (!reportsBlocked) _feedbackSync.resume();
     },
   );
 
@@ -491,7 +510,7 @@ class AppSession extends ChangeNotifier {
     unawaited(_faq.load());
     // ספירה בלבד — גם בכונן מוגן, כדי שהבית יאמר שיש בו דיווחים.
     unawaited(_errorReports.refreshOutbox());
-    if (!readOnly) _errorReports.startAutomaticPluginUpload();
+    if (!reportsBlocked) _errorReports.startAutomaticPluginUpload();
     _errorReportsIntro = _loadReportsIntro();
     unawaited(loadSemanticConsentAnswer());
     settings.addListener(_onChange);
@@ -584,7 +603,7 @@ class AppSession extends ChangeNotifier {
       if (running && _checkedAt != null) unawaited(_offers.request());
     }
     _offers.onRunningState(running: running);
-    if (!readOnly) _feedbackSync.onRunningState(running: running);
+    if (!reportsBlocked) _feedbackSync.onRunningState(running: running);
     _offers.resume();
     _applySettings(settings.settings);
     _syncRunningPoll();
@@ -650,7 +669,7 @@ class AppSession extends ChangeNotifier {
 
   /// סופר מה ממתין באוצריא לאיסוף. אם הספירה אינה זמינה נשאר המספר הקודם.
   Future<void> recountReportsToCollect() async {
-    if (readOnly || !isActive) return;
+    if (reportsBlocked || !isActive) return;
     final revision = ++_reportCountRevision;
     final counted =
         await _errorReports.countWaiting(otzariaRunning: _otzariaIsRunning);
@@ -678,6 +697,7 @@ class AppSession extends ChangeNotifier {
     final s = settings.settings;
     return {
       'readOnly': readOnly,
+      'mirrorLocked': mirrorLocked,
       'otzaria': _otzaria.status.name,
       'otzariaVersion': _otzaria.currentVersion,
       'otzariaRunning': _otzariaIsRunning,
@@ -931,7 +951,11 @@ class AppSession extends ChangeNotifier {
     if (!readOnly) return false;
     final t = AppL10n.strings.readOnlyDrive;
     UiSnack.show(
-      driveFull ? t.downloadsDisabledSnackDriveFull : t.downloadsDisabledSnack,
+      mirrorLocked
+          ? t.downloadsDisabledSnackMirrorLocked
+          : driveFull
+              ? t.downloadsDisabledSnackDriveFull
+              : t.downloadsDisabledSnack,
     );
     return true;
   }
@@ -967,7 +991,7 @@ class AppSession extends ChangeNotifier {
   }
 
   void _requestFeedbackSync() {
-    if (!readOnly && isActive) unawaited(_feedbackSync.request());
+    if (!reportsBlocked && isActive) unawaited(_feedbackSync.request());
   }
 
   Future<void> grantSemanticConsent() async {

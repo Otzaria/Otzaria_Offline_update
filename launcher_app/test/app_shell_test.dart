@@ -99,6 +99,7 @@ void main() {
     MemoryNoticesStore? notices,
     bool readOnly = false,
     bool driveFull = false,
+    bool mirrorLocked = false,
     SleepInhibitor? sleepInhibitor,
     SearchFeedbackController? searchFeedback,
     ErrorReportsController? errorReports,
@@ -112,6 +113,7 @@ void main() {
           runningLocator: locator,
           readOnly: readOnly,
           driveFull: driveFull,
+          mirrorLocked: mirrorLocked,
           sleepInhibitor: sleepInhibitor,
           searchFeedback: searchFeedback,
           errorReports: errorReports,
@@ -747,6 +749,148 @@ void main() {
     testWidgets('בכונן כתיב יש "בדוק עכשיו" ליד "נבדק ב-"', (tester) async {
       await pumpShell(tester);
       expect(find.byKey(ShellKeys.checkNow), findsOneWidget);
+    });
+  });
+
+  group('הבית במראה נעולה, נתונים פתוחים', () {
+    Future<void> settle(WidgetTester tester, bool Function() done) async {
+      for (var i = 0; i < 40 && !done(); i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    testWidgets('הודעת "נעול לעדכונים", בלי "בדוק עכשיו" ובלי בדיקה ברשת',
+        (tester) async {
+      await pumpShell(tester, readOnly: true, mirrorLocked: true);
+
+      expect(find.byKey(ShellKeys.mirrorLockedNotice), findsOneWidget);
+      expect(find.byKey(ShellKeys.readOnlyNotice), findsNothing);
+      expect(
+        find.text(stringsOf().readOnlyDrive.bannerTitleMirrorLocked),
+        findsOneWidget,
+      );
+      expect(find.byKey(ShellKeys.checkNow), findsNothing);
+      await tester.runAsync(sessionOf(tester).checkOnline);
+      expect(sessionOf(tester).otzaria.onlineCheckedAt, isNull);
+    });
+
+    testWidgets('דיווחים נספרים ונאספים: האריח אינו נעול ויש כפתור איסוף',
+        (tester) async {
+      final queue = _ShellReportQueue()..pending = 2;
+      final reports = ErrorReportsController(
+          outbox: queue.outbox, resolveQueue: () async => queue);
+      await pumpShell(
+        tester,
+        readOnly: true,
+        mirrorLocked: true,
+        locator: _MutableLocator(isRunning: false),
+        errorReports: reports,
+      );
+      await tester.runAsync(() => sessionOf(tester).recountReportsToCollect());
+      await tester.pump();
+
+      expect(sessionOf(tester).reportsToCollect, 2);
+      expect(find.text(stringsOf().guide.chipReportsLocked), findsNothing);
+
+      await open(tester, ShellSection.reports);
+      expect(
+        find.text(stringsOf().guide.reportsLockedNote(driveFull: false)),
+        findsNothing,
+      );
+      expect(find.byKey(ShellKeys.reportsCollect), findsOneWidget);
+    });
+
+    testWidgets('משוב החיפוש מסתנכרן במראה נעולה', (tester) async {
+      final transport = _ShellFeedback();
+      final feedback = SearchFeedbackController(
+          transport: transport, resolveSource: () async => 'source');
+      await pumpShell(
+        tester,
+        readOnly: true,
+        mirrorLocked: true,
+        locator: _MutableLocator(isRunning: false),
+        searchFeedback: feedback,
+      );
+      await settle(tester, () => transport.sent > 0);
+      expect(transport.sent, 2);
+    });
+
+    testWidgets('דף התוכנות הנוספות אומר "נעול לעדכונים", לא "מוגן מכתיבה"',
+        (tester) async {
+      await pumpShell(tester, readOnly: true, mirrorLocked: true);
+      await navigatorOf(tester).select(ShellSection.customApps);
+      await tester.pump();
+
+      final t = stringsOf().customApps;
+      expect(find.text(t.emptyMirrorLockedBody), findsOneWidget);
+      expect(find.text(t.emptyReadOnlyBody), findsNothing);
+    });
+
+    testWidgets('סגירת אוצריא מפעילה סנכרון משוב במראה נעולה', (tester) async {
+      final transport = _ShellFeedback();
+      final locator = _MutableLocator(isRunning: true);
+      final feedback = SearchFeedbackController(
+          transport: transport,
+          resolveSource: () async => locator.isRunning ? null : 'source');
+      await pumpShell(
+        tester,
+        readOnly: true,
+        mirrorLocked: true,
+        locator: locator,
+        searchFeedback: feedback,
+      );
+      await settle(tester, () => transport.collections > 0);
+      expect(transport.collections, 0);
+
+      locator.isRunning = false;
+      await tester.runAsync(sessionOf(tester).refreshProcessState);
+      await settle(tester, () => transport.collections > 0);
+      expect(transport.collections, greaterThan(0));
+    });
+
+    for (final mirrorLocked in [true, false]) {
+      testWidgets(
+          'העלאת דוחות התוספים האוטומטית: '
+          '${mirrorLocked ? 'מופעלת במראה נעולה' : 'כבויה בכונן מוגן'}',
+          (tester) async {
+        final reports = _CountingReports();
+        await pumpShell(
+          tester,
+          readOnly: true,
+          mirrorLocked: mirrorLocked,
+          locator: _MutableLocator(isRunning: false),
+          errorReports: reports,
+        );
+        await settle(tester, () => reports.automaticStarts > 0);
+        expect(reports.automaticStarts, mirrorLocked ? 1 : 0);
+      });
+    }
+
+    test('קריאות הדוחות והמשוב בסשן נשענות על reportsBlocked ולא על readOnly',
+        () {
+      final source = _appSessionSource();
+      final offers = _methodBody(source, 'late final ReportOfferCoordinator');
+      expect(offers, contains('if (!reportsBlocked) _feedbackSync.resume();'));
+      expect(source, contains('if (!reportsBlocked) _errorReports.start'));
+      expect(source,
+          contains('if (!reportsBlocked) _feedbackSync.onRunningState'));
+      expect(source, contains('mirrorReadOnly: readOnly,'));
+    });
+
+    testWidgets('כונן מוגן לגמרי: משוב החיפוש אינו נאסף', (tester) async {
+      final transport = _ShellFeedback();
+      final feedback = SearchFeedbackController(
+          transport: transport, resolveSource: () async => 'source');
+      await pumpShell(
+        tester,
+        readOnly: true,
+        locator: _MutableLocator(isRunning: false),
+        searchFeedback: feedback,
+      );
+      await settle(tester, () => transport.sent > 0);
+      expect(transport.sent, 0);
     });
   });
 
@@ -2786,4 +2930,17 @@ class _ShellOutbox implements ReportOutbox {
   @override
   Future<void> discard(String reportId) async =>
       reports.removeWhere((r) => r.reportId == reportId);
+}
+
+/// סופר את הפעלת ההעלאה האוטומטית של דוחות התוספים.
+class _CountingReports extends ErrorReportsController {
+  _CountingReports._(_ShellReportQueue queue)
+      : super(outbox: queue.outbox, resolveQueue: () async => queue);
+
+  factory _CountingReports() => _CountingReports._(_ShellReportQueue());
+
+  int automaticStarts = 0;
+
+  @override
+  void startAutomaticPluginUpload() => automaticStarts++;
 }
