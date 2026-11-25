@@ -525,9 +525,9 @@ class PluginMirrorSync {
           plugin.remoteImageUrl,
           p.join(dir, 'image'),
           checkCancelled: () => _throwIfCancelled(cancelled),
+          onBytesReceived: addBytes,
           rejection: _imageRejection,
         );
-        addBytes(asset.size);
         result = result.copyWith(imagePath: store.relativePath(asset.path));
       } catch (e) {
         complete = false;
@@ -568,9 +568,9 @@ class PluginMirrorSync {
                 shotUrls[i],
                 p.join(dir, 'screenshot-$i'),
                 checkCancelled: () => _throwIfCancelled(cancelled),
+                onBytesReceived: addBytes,
                 rejection: _imageRejection,
               );
-              addBytes(asset.size);
               downloaded[i] = store.relativePath(asset.path);
             } catch (e) {
               failedAny = true;
@@ -812,12 +812,12 @@ class PluginMirrorSync {
           expectedSize: target.fileSize,
           expectedSha256: target.sha256,
           checkCancelled: () => _throwIfCancelled(cancelled),
+          onBytesReceived: addBytes,
           rejection: (path) {
             manifest = PluginManifestReader.read(path);
             return buildRejection(manifest, target, manifestId);
           },
         );
-        addBytes(asset.size);
         files[target.version] = PluginLocalFile(
           relativePath: store.relativePath(asset.path),
           fileName: asset.originalName ?? '${plugin.name}${asset.ext}',

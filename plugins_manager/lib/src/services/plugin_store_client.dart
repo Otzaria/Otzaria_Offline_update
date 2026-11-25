@@ -136,6 +136,7 @@ class PluginStoreClient {
     int? expectedSize,
     String? expectedSha256,
     void Function()? checkCancelled,
+    void Function(int bytes)? onBytesReceived,
     FutureOr<String?> Function(String path)? rejection,
   }) async {
     final target = absolute(url);
@@ -161,6 +162,7 @@ class PluginStoreClient {
         stallTimeout: stallTimeout,
         expectedSize: expectedSize,
         checkCancelled: checkCancelled,
+        onBytesReceived: onBytesReceived,
         keepPartialOnCancel: true,
         statusError: (status) => _HttpStatusException(
           AppL10n.strings.pluginsDomain.httpStatusFor(status, url),

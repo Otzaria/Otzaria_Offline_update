@@ -3,7 +3,8 @@ enum PluginSyncPhase { start, plugin, pluginFinished, warning, done }
 
 /// אירוע התקדמות בודד. [warning] אינו עוצר את הסנכרון — קובץ בודד שנכשל
 /// פשוט חסר לתוסף, והשאר ממשיך. [PluginSyncPhase.pluginFinished] הוא ליומן
-/// בלבד: [message] הוא שם התוסף, ו-[bytes] ו-[elapsed] מה שירד לו וכמה זמן.
+/// בלבד: [message] הוא שם התוסף, [bytes] התעבורה החדשה בכל ניסיונות ההורדה
+/// שלו (ללא חלקיים ישנים), ו-[elapsed] הזמן שעבר מתחילת הטיפול בו.
 class PluginSyncProgress {
   const PluginSyncProgress({
     required this.phase,

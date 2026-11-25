@@ -26,6 +26,7 @@ void main() {
     Duration stall = const Duration(milliseconds: 100),
     Duration connect = const Duration(milliseconds: 100),
     void Function(int, int)? progress,
+    void Function(int)? onBytesReceived,
     void Function()? cancelled,
     bool keepPartialOnCancel = false,
   }) =>
@@ -38,6 +39,7 @@ void main() {
         stallTimeout: stall,
         connectTimeout: connect,
         onProgress: progress,
+        onBytesReceived: onBytesReceived,
         checkCancelled: cancelled,
         keepPartialOnCancel: keepPartialOnCancel,
         statusError: (status) => StateError('HTTP $status'),
@@ -85,21 +87,25 @@ void main() {
     expect(await File('$target.part').readAsString(), 'abc');
     expect(await File(target).exists(), isFalse);
     final progress = <int>[];
+    final received = <int>[];
     final result = await download(responding((req) async {
       expect(req.headers['Range'], 'bytes=3-');
       expect(req.headers['If-Range'], '"v1"');
       return body('def',
           status: 206, headers: {'content-range': 'bytes 3-5/6'});
-    }), progress: (n, _) => progress.add(n));
+    }), progress: (n, _) => progress.add(n), onBytesReceived: received.add);
     expect(await File(target).readAsString(), 'abcdef');
     expect(result.headers['content-disposition'], contains('app.exe'));
     expect(progress, [3, 6]);
+    expect(received, [3]);
+    expect(result.size, 6);
     expect(await File('$target.resume').exists(), isFalse);
     expect(await File('$target.part').exists(), isFalse);
   });
 
   test('a transient disconnect automatically resumes once', () async {
     var requests = 0;
+    final received = <int>[];
     await download(responding((req) async {
       if (++requests == 1) {
         return http.StreamedResponse(interrupted(), 200,
@@ -108,36 +114,80 @@ void main() {
       expect(req.headers['Range'], 'bytes=3-');
       return body('def',
           status: 206, headers: {'content-range': 'bytes 3-5/6'});
-    }), attempts: 2);
+    }), attempts: 2, onBytesReceived: received.add);
     expect(requests, 2);
     expect(await File(target).readAsString(), 'abcdef');
+    expect(received, [3, 3]);
+  });
+
+  test('a retry that restarts counts the abandoned bytes as well', () async {
+    var requests = 0;
+    final received = <int>[];
+    final result = await download(responding((req) async {
+      if (++requests == 1) {
+        return http.StreamedResponse(interrupted(), 200,
+            contentLength: 6, headers: {'etag': '"v1"'});
+      }
+      expect(req.headers['Range'], 'bytes=3-');
+      return body('UVWXYZ', headers: {'etag': '"v2"'});
+    }), attempts: 2, onBytesReceived: received.add);
+    expect(requests, 2);
+    expect(received, [3, 6]);
+    expect(result.size, 6);
+    expect(await File(target).readAsString(), 'UVWXYZ');
   });
 
   test('ignored Range or changed asset replaces bytes, never appends',
       () async {
     await partial();
     final progress = <int>[];
+    final received = <int>[];
     await download(responding((req) async {
       expect(req.headers['Range'], 'bytes=3-');
       return body('UVWXYZ', headers: {'etag': '"v2"'});
-    }), progress: (n, _) => progress.add(n));
+    }), progress: (n, _) => progress.add(n), onBytesReceived: received.add);
     expect(await File(target).readAsString(), 'UVWXYZ');
     expect(progress.first, 0);
+    expect(received, [6]);
   });
 
   test('416 restarts at most once without draining the rejected body',
       () async {
     await partial();
     var requests = 0;
+    final received = <int>[];
     final stalled = StreamController<List<int>>();
     await download(responding((req) async {
       if (++requests == 1) return http.StreamedResponse(stalled.stream, 416);
       expect(req.headers.containsKey('Range'), isFalse);
       return body('abcdef');
-    }));
+    }), onBytesReceived: received.add);
     await stalled.close();
     expect(requests, 2);
     expect(await File(target).readAsString(), 'abcdef');
+    expect(received, [6]);
+  });
+
+  test('a complete partial file restarts without counting the saved copy',
+      () async {
+    await partial();
+    await File('$target.part').writeAsString('abcdef');
+    final received = <int>[];
+    final result = await download(responding((req) async {
+      expect(req.headers.containsKey('Range'), isFalse);
+      return body('UVWXYZ');
+    }), onBytesReceived: received.add);
+    expect(received, [6]);
+    expect(result.size, 6);
+    expect(await File(target).readAsString(), 'UVWXYZ');
+  });
+
+  test('an empty body transfers no bytes', () async {
+    final received = <int>[];
+    final result = await download(responding((_) async => body('')),
+        size: null, onBytesReceived: received.add);
+    expect(received.fold<int>(0, (sum, bytes) => sum + bytes), 0);
+    expect(result.size, 0);
   });
 
   for (final headers in [

@@ -30,6 +30,7 @@ ByteConversionSink Function(Sink<Digest> output) startSha256 =
     sha256.startChunkedConversion;
 
 /// החלקי נשמר בנפרד מהיעד, ורק ETag חזק מאפשר לחבר אליו בייטים חדשים.
+/// [onBytesReceived] סופר מנות מהתגובה, כולל ניסיונות חוזרים, בלי החלקי הישן.
 Future<FileDownloadResult> downloadFile({
   required http.Client client,
   required String url,
@@ -40,6 +41,7 @@ Future<FileDownloadResult> downloadFile({
   Duration connectTimeout = const Duration(seconds: 20),
   Duration stallTimeout = const Duration(seconds: 30),
   void Function(int received, int total)? onProgress,
+  void Function(int bytes)? onBytesReceived,
   void Function()? checkCancelled,
   bool keepPartialOnCancel = false,
   int maxAttempts = 2,
@@ -60,6 +62,7 @@ Future<FileDownloadResult> downloadFile({
           connectTimeout: connectTimeout,
           stallTimeout: stallTimeout,
           onProgress: onProgress,
+          onBytesReceived: onBytesReceived,
           cancellation: cancellation,
           keepPartialOnCancel: keepPartialOnCancel,
           calculateSha256: calculateSha256,
@@ -101,6 +104,7 @@ Future<FileDownloadResult> _downloadFile({
   Duration connectTimeout = const Duration(seconds: 20),
   Duration stallTimeout = const Duration(seconds: 30),
   void Function(int received, int total)? onProgress,
+  void Function(int bytes)? onBytesReceived,
   RequestCancellation? cancellation,
   required bool keepPartialOnCancel,
   required bool calculateSha256,
@@ -279,6 +283,7 @@ Future<FileDownloadResult> _downloadFile({
       final body = response.stream.timeout(stallTimeout);
       await for (final chunk in cancellation?.bind(body) ?? body) {
         cancellation?.check();
+        onBytesReceived?.call(chunk.length);
         received += chunk.length;
         if (total != null && received > total) {
           retain = false;

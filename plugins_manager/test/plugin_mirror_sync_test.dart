@@ -530,6 +530,88 @@ void main() {
       );
     });
 
+    for (final acceptsRange in [true, false]) {
+      test('המשך הורדה מודד רק תעבורה חדשה (Range=$acceptsRange)', () async {
+        final bytes = pluginBytes('{"id":"manifest-a","version":"1.0.0"}');
+        final prefix = bytes.length * 3 ~/ 4;
+        final store = PluginMirrorStore(temp.path);
+        final staging = '${store.pluginFilePathNoExt('a', '1.0.0')}.download';
+        final part = File('$staging.part');
+        await part.parent.create(recursive: true);
+        await part.writeAsBytes(bytes.sublist(0, prefix));
+        await File('$staging.resume').writeAsString(jsonEncode({
+          'url': 'https://otzaria.test/api/plugins/a/download',
+          'expectedSize': null,
+          'etag': '"v1"',
+          'total': bytes.length,
+          'headers': <String, String>{},
+        }));
+        final site = _Site(plugins: [
+          {
+            'id': 'a',
+            'name': 'אלף',
+            'version': '1.0.0',
+            'downloadUrl': '/api/plugins/a/download',
+          },
+        ]);
+        final fallback = site.build();
+        addTearDown(fallback.close);
+        final transport = MockClient((request) async {
+          if (!request.url.path.endsWith('/download')) {
+            return fallback.get(request.url);
+          }
+          expect(request.headers['Range'], 'bytes=$prefix-');
+          return http.Response.bytes(
+            acceptsRange ? bytes.sublist(prefix) : bytes,
+            acceptsRange ? 206 : 200,
+            headers: {
+              if (acceptsRange)
+                'content-range':
+                    'bytes $prefix-${bytes.length - 1}/${bytes.length}',
+            },
+          );
+        });
+        final client = PluginStoreClient(
+          baseUrl: 'https://otzaria.test',
+          client: transport,
+        );
+        addTearDown(client.dispose);
+        final events = <PluginSyncProgress>[];
+        final outcome = await PluginMirrorSync(client: client, store: store)
+            .sync(onProgress: events.add);
+
+        expect(outcome.failed, isEmpty);
+        final finished = events.singleWhere(
+          (event) => event.phase == PluginSyncPhase.pluginFinished,
+        );
+        expect(finished.bytes,
+            acceptsRange ? bytes.length - prefix : bytes.length);
+        final build = outcome.catalog.plugins.single.localFiles.values.single;
+        expect(build.size, bytes.length);
+        expect(await File(store.absolutePath(build.relativePath)).readAsBytes(),
+            bytes);
+      });
+    }
+
+    test('גם מדיה שנדחתה אחרי ההורדה נכללת בתעבורה שנמדדה', () async {
+      final site = _Site()
+        ..bodies['/api/plugins/a/image'] = utf8.encode('<html>blocked</html>');
+      final events = <PluginSyncProgress>[];
+      final outcome = await syncOutcome(site, events: events);
+
+      expect(outcome.incompleteMedia, ['אלף']);
+      final finished = events.singleWhere((event) =>
+          event.phase == PluginSyncPhase.pluginFinished &&
+          event.message == 'אלף');
+      final build = outcome.catalog.plugins
+          .firstWhere((plugin) => plugin.id == 'a')
+          .localFiles
+          .values
+          .single;
+      expect(finished.bytes,
+          build.size + site.bodies['/api/plugins/a/image']!.length);
+    });
+
     test('דף קטגוריה שנופל שומר את החברות הקודמת מהמראה', () async {
       await sync(_Site());
 

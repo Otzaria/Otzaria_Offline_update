@@ -60,19 +60,11 @@ enum PluginInstallFilter { all, newOnes, installed, notInstalled }
 
 enum PluginSortMode { recommended, newest, updated }
 
-/// שורת יומן לתוסף שסונכרן — כדי שדיווח על איטיות יראה איפה הזמן הלך.
-@visibleForTesting
-String pluginTimingLine(String name, int bytes, Duration elapsed) =>
-    'תוסף $name: ${pluginTimingSummary(bytes, elapsed)}';
-
-@visibleForTesting
-String pluginTimingSummary(int bytes, Duration elapsed) {
+(String, String, String) _pluginTimingParts(int bytes, Duration elapsed) {
   final seconds = elapsed.inMilliseconds / 1000;
   final rate =
       seconds > 0 && bytes > 0 ? ' (${formatRate(bytes / seconds)})' : '';
-  return withoutBidiMarks(
-    '${formatBytes(bytes)} ב־${seconds.toStringAsFixed(1)} שנ׳$rate',
-  );
+  return (formatBytes(bytes), seconds.toStringAsFixed(1), rate);
 }
 
 /// המרווח בין שתי מסירות רצופות של עדכוני תוספים.
@@ -749,12 +741,12 @@ class PluginsModuleController extends ChangeNotifier
         onProgress: (progress) {
           if (progress.phase == PluginSyncPhase.pluginFinished) {
             syncedBytes += progress.bytes ?? 0;
+            final (size, seconds, rate) = _pluginTimingParts(
+              progress.bytes ?? 0,
+              progress.elapsed ?? Duration.zero,
+            );
             AppLogger.instance.info(
-              pluginTimingLine(
-                progress.message,
-                progress.bytes ?? 0,
-                progress.elapsed ?? Duration.zero,
-              ),
+              'תוסף ${progress.message}: $size ב־$seconds שנ׳$rate',
             );
             return;
           }
@@ -775,11 +767,12 @@ class PluginsModuleController extends ChangeNotifier
       );
       lastSyncOutcome = outcome;
       syncCause = outcome.storageFailure;
+      final (size, seconds, rate) =
+          _pluginTimingParts(syncedBytes, clock.elapsed);
+      final warnings =
+          syncWarnings.isEmpty ? '' : ':\n${syncWarnings.join('\n')}';
       AppLogger.instance.info(
-        'סנכרון התוספים: ${outcome.fetched} ירדו, '
-        '${outcome.skipped} דולגו, ${syncWarnings.length} אזהרות, '
-        '${pluginTimingSummary(syncedBytes, clock.elapsed)}'
-        '${syncWarnings.isEmpty ? '' : ':\n${syncWarnings.join('\n')}'}',
+        'סנכרון התוספים: ${outcome.fetched} ירדו, ${outcome.skipped} דולגו, ${syncWarnings.length} אזהרות, $size ב־$seconds שנ׳$rate$warnings',
       );
       // ליומן בלבד: הבחירה עצמה שקופה למשתמש, אבל "למה התוסף הזה לא על
       // הכונן" חייב להיות ניתן לענות עליו.
