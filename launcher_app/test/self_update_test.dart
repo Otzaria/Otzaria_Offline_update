@@ -1305,6 +1305,137 @@ void main() {
         expect(controller.onlineCheckError, isNull);
       });
 
+      for (final newestFirst in [false, true]) {
+        test('בדיקות חופפות ממתינות לתוצאה התקפה — חדשה קודם: $newestFirst',
+            () async {
+          final updater = _PeekQueueUpdater();
+          final controller =
+              LauncherUpdateController(dataDir: temp.path, updater: updater);
+          addTearDown(controller.dispose);
+          var firstFinished = false;
+          final first = controller.checkOnline().then((_) {
+            firstFinished = true;
+          });
+          final latest = controller.checkOnline();
+
+          if (newestFirst) {
+            updater.peeks[1].complete(_release(tag: _tagAfterNewer()));
+            await latest;
+          } else {
+            updater.peeks[0].complete(_release());
+          }
+          await Future<void>.delayed(Duration.zero);
+          final finishedBeforeOtherResponse = firstFinished;
+          if (newestFirst) {
+            updater.peeks[0].completeError(Exception('old request failed'));
+          } else {
+            updater.peeks[1].complete(_release(tag: _tagAfterNewer()));
+          }
+          await Future.wait([first, latest]);
+
+          expect(finishedBeforeOtherResponse, newestFirst);
+          expect(controller.onlineRelease?.tagName, _tagAfterNewer());
+          expect(controller.onlineCheckError, isNull);
+          expect(controller.onlineCheckedAt, isNotNull);
+        });
+      }
+
+      test('כשל בבדיקה החדשה משחרר את הממתינים ואפשר לבדוק שוב', () async {
+        final updater = _PeekQueueUpdater();
+        final controller =
+            LauncherUpdateController(dataDir: temp.path, updater: updater);
+        addTearDown(controller.dispose);
+        var firstFinished = false;
+        final first = controller.checkOnline().then((_) {
+          firstFinished = true;
+        });
+        final latest = controller.checkOnline();
+        updater.peeks[0].complete(_release());
+        await Future<void>.delayed(Duration.zero);
+        final finishedBeforeFailure = firstFinished;
+        updater.peeks[1].completeError(Exception('latest request failed'));
+        await Future.wait([first, latest]);
+
+        expect(finishedBeforeFailure, isFalse);
+        expect(controller.onlineRelease, isNull);
+        expect(controller.onlineCheckError, contains('latest request failed'));
+        expect(controller.onlineCheckedAt, isNotNull);
+        final retry = controller.checkOnline();
+        expect(updater.peeks, hasLength(3));
+        updater.peeks[2].complete(_release());
+        await retry;
+        expect(controller.hasOnlineUpdate, isTrue);
+        expect(controller.onlineCheckError, isNull);
+      });
+
+      test('כל הממתינים עוקבים גם אחרי בדיקה שלישית', () async {
+        final updater = _PeekQueueUpdater();
+        final controller =
+            LauncherUpdateController(dataDir: temp.path, updater: updater);
+        addTearDown(controller.dispose);
+        var finished = 0;
+        final first = controller.checkOnline().then((_) => finished++);
+        final second = controller.checkOnline().then((_) => finished++);
+        updater.peeks[0].complete(_release());
+        await Future<void>.delayed(Duration.zero);
+        final latest = controller.checkOnline();
+        updater.peeks[1].complete(null);
+        await Future<void>.delayed(Duration.zero);
+        final finishedBeforeLatest = finished;
+        updater.peeks[2].complete(_release(tag: _tagAfterNewer()));
+        await Future.wait([first, second, latest]);
+
+        expect(finishedBeforeLatest, 0);
+        expect(controller.onlineRelease?.tagName, _tagAfterNewer());
+      });
+
+      test('ממתינים ליומן החדש, ויומן ישן אינו מעכב או דורס אותו', () async {
+        final updater = _PeekQueueUpdater()..holdChangelogs = true;
+        final controller =
+            LauncherUpdateController(dataDir: temp.path, updater: updater);
+        addTearDown(controller.dispose);
+        var firstFinished = false;
+        final first = controller.checkOnline().then((_) {
+          firstFinished = true;
+        });
+        updater.peeks[0].complete(_release());
+        await Future<void>.delayed(Duration.zero);
+        expect(updater.changelogs, hasLength(1));
+        final latest = controller.checkOnline();
+        updater.peeks[1].complete(_release(tag: _tagAfterNewer()));
+        await Future<void>.delayed(Duration.zero);
+        expect(updater.changelogs, hasLength(2));
+        expect(firstFinished, isFalse);
+        final newest =
+            _release(tag: _tagAfterNewer()).withChangelog('new notes');
+        updater.changelogs[1].complete(newest);
+        await latest;
+        await Future<void>.delayed(Duration.zero);
+        final finishedBeforeOldNotes = firstFinished;
+        updater.changelogs[0].complete(_release().withChangelog('old notes'));
+        await first;
+
+        expect(finishedBeforeOldNotes, isTrue);
+        expect(controller.onlineRelease, same(newest));
+        expect(controller.onlineCheckError, isNull);
+      });
+
+      test('סילוק הקונטרולר בזמן בדיקות משחרר את ההמתנה בלי לפרסם תוצאה',
+          () async {
+        final updater = _PeekQueueUpdater();
+        final controller =
+            LauncherUpdateController(dataDir: temp.path, updater: updater);
+        final first = controller.checkOnline();
+        final latest = controller.checkOnline();
+        controller.dispose();
+        updater.peeks[0].complete(_release());
+        updater.peeks[1].complete(_release(tag: _tagAfterNewer()));
+        await Future.wait([first, latest]);
+
+        expect(controller.onlineRelease, isNull);
+        expect(controller.onlineCheckedAt, isNull);
+      });
+
       test('גרסה ותיקה במראה אינה מסתירה שהגרסה שברשת כבר רצה', () {
         final controller = LauncherUpdateController(
           dataDir: temp.path,
@@ -1537,6 +1668,8 @@ class _NoRestartInstaller extends LauncherSelfInstaller {
 
 class _PeekQueueUpdater implements LauncherSelfUpdater {
   final peeks = <Completer<LauncherRelease?>>[];
+  bool holdChangelogs = false;
+  final changelogs = <Completer<LauncherRelease>>[];
 
   @override
   Future<LauncherRelease?> peekLatestOnline() {
@@ -1546,8 +1679,12 @@ class _PeekQueueUpdater implements LauncherSelfUpdater {
   }
 
   @override
-  Future<LauncherRelease> withChangelog(LauncherRelease release) async =>
-      release;
+  Future<LauncherRelease> withChangelog(LauncherRelease release) async {
+    if (!holdChangelogs) return release;
+    final c = Completer<LauncherRelease>();
+    changelogs.add(c);
+    return c.future;
+  }
 
   @override
   void dispose() {}
