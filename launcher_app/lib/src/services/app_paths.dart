@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:win32/win32.dart';
 
 import '../self_update/launcher_install_layout.dart';
+import 'machine_state_migration.dart';
 
 enum AppPathsFailure {
   cannotWrite,
@@ -17,6 +18,7 @@ enum AppPathsFailure {
   appTranslocated,
   runningFromTemp,
   systemDrive,
+  stateMigration,
 }
 
 class AppPathsException implements Exception {
@@ -127,13 +129,15 @@ class AppPaths {
       );
     }
     final failure = await _probeWritable(dataDir);
-    final mirrorLocked = await _isMirrorLocked(dataDir);
+    final mirrorFailure = await _mirrorWriteFailure(dataDir);
+    final mirrorLocked = mirrorFailure != null;
     if (failure == null && !mirrorLocked) {
       return AppPaths(dataDir: dataDir, stateDir: dataDir);
     }
 
-    final diskFull = failure != null && _isDiskFull(failure);
-    if (mirrorLocked || await _hasMirror(dataDir)) {
+    final writeFailure = failure ?? mirrorFailure!;
+    final diskFull = _isDiskFull(writeFailure);
+    if (await _hasMirror(dataDir)) {
       final machineDir = machineStateDir(
         environment ?? Platform.environment,
         isWindows: Platform.isWindows,
@@ -157,13 +161,10 @@ class AppPaths {
         );
       }
     }
-    // mirror/ נעולה ואין לאן לגלות את המצב: כמו לפני הבדיקה לפי תיקייה.
-    if (failure == null) return AppPaths(dataDir: dataDir, stateDir: dataDir);
-
     throw AppPathsException(
       message: diskFull
           ? AppL10n.strings.setupError.driveFull
-          : writeFailureMessage(failure, isMacOS: macOS),
+          : writeFailureMessage(writeFailure, isMacOS: macOS),
       attemptedDir: dataDir,
       kind: diskFull ? AppPathsFailure.driveFull : AppPathsFailure.cannotWrite,
     );
@@ -292,21 +293,24 @@ class AppPaths {
   }
 
   /// `mirror/` קיימת ואי אפשר לכתוב בה. חסרה = אפשר ליצור אותה, ולא נעולה.
-  static Future<bool> _isMirrorLocked(String dataDir) async {
+  static Future<FileSystemException?> _mirrorWriteFailure(
+      String dataDir) async {
     final mirror = p.join(dataDir, 'mirror');
     try {
-      if (!await Directory(mirror).exists()) return false;
-    } on FileSystemException {
-      return false;
+      if (!await Directory(mirror).exists()) return null;
+    } on FileSystemException catch (error) {
+      return error;
     }
     // כשל חולף (אנטי-וירוס, הפרת שיתוף) בכונן כתיב לא יהפוך אותו לנעול.
+    FileSystemException? failure;
     for (var attempt = 0; attempt < mirrorProbeAttempts; attempt++) {
       if (attempt > 0) {
         await Future<void>.delayed(mirrorProbeBackoff * attempt);
       }
-      if (await _probeWritable(mirror) == null) return false;
+      failure = await _probeWritable(mirror);
+      if (failure == null) return null;
     }
-    return true;
+    return failure;
   }
 
   static const int mirrorProbeAttempts = 3;
@@ -366,7 +370,7 @@ class AppPaths {
         try {
           await source.rename(target.path);
         } on FileSystemException {
-          await source.copy(target.path);
+          await writeBytesAtomically(target.path, await source.readAsBytes());
           await source.delete();
         }
       } catch (_) {
@@ -376,19 +380,29 @@ class AppPaths {
     }
   }
 
-  /// מחשב שהריץ את הכונן במצב קריאה מלא שמר את קובצי המצב שלו בתיקיית המחשב.
-  /// במראה נעולה המצב עובר לכונן — מעתיקים (לא מזיזים) קובץ שחסר שם.
+  /// המצב מתמזג לפי רשומה; דוחות ממתינים עוברים לכונן רק אחרי כתיבה בטוחה.
+  /// כשל עוצר לפני פתיחת החנויות ושליחת התור, כדי שההפעלה הבאה תוכל להשלים.
   Future<void> seedStateFromMachine() async {
     if (!mirrorLocked || prefsDir == stateDir) return;
-    for (final name in stateFileNames) {
+    try {
+      await MachineStateMigration(
+        sourceDir: prefsDir,
+        targetDir: stateDir,
+        fileNames: stateFileNames,
+      ).run();
+      final reports =
+          AppReportService(directory: AppReportService.dirIn(stateDir));
       try {
-        final target = File(p.join(stateFilesDir, name));
-        final source = File(p.join(prefsDir, logsDirName, name));
-        if (await target.exists() || !await source.exists()) continue;
-        await writeBytesAtomically(target.path, await source.readAsBytes());
-      } on FileSystemException {
-        continue;
+        await reports.migratePendingFrom(AppReportService.dirIn(prefsDir));
+      } finally {
+        reports.dispose();
       }
+    } catch (error) {
+      throw AppPathsException(
+        message: AppL10n.strings.setupError.stateMigrationFailed('$error'),
+        attemptedDir: stateFilesDir,
+        kind: AppPathsFailure.stateMigration,
+      );
     }
   }
 

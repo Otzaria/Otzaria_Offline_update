@@ -148,4 +148,38 @@ void main() {
         .where((name) => name.startsWith('.write-test'));
     expect(left, isEmpty);
   });
+
+  for (final rootLocked in [false, true]) {
+    test('an empty locked mirror is rejected (root locked: $rootLocked)',
+        () async {
+      Directory(p.join(drive.path, 'mirror')).createSync();
+      createDataFolders();
+
+      await expectLater(
+        resolve(PartialLockIOOverrides(
+          driveRoot: drive.path,
+          lockedDirs: {if (rootLocked) '', 'mirror'},
+        )),
+        throwsA(isA<AppPathsException>()),
+      );
+    });
+
+    test(
+        'a locked mirror without a local profile never enables downloads '
+        '(root locked: $rootLocked)', () async {
+      fillMirror();
+      createDataFolders();
+
+      await expectLater(
+        IOOverrides.runWithIOOverrides(
+          () => AppPaths.resolve(environment: const {}),
+          PartialLockIOOverrides(
+            driveRoot: drive.path,
+            lockedDirs: {if (rootLocked) '', 'mirror'},
+          ),
+        ),
+        throwsA(isA<AppPathsException>()),
+      );
+    });
+  }
 }

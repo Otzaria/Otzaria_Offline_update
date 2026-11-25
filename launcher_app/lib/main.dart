@@ -109,19 +109,7 @@ void main() {
       try {
         paths = await AppPaths.resolve();
       } on AppPathsException catch (e) {
-        debugPrint('$e');
-        // **גם מסך העצירה משאיר עקבה.** זה היה המסלול היחיד שנגמר בלי שורת
-        // לוג אחת בשום מקום — ולכן משתמש שנתקע בו נראה בדיוק כמו משתמש
-        // שהתוכנה שלו לא כותבת ללוג בכלל. ה-temp הוא מה שנשאר כשלתיקיית
-        // הנתונים אין הרשאת כתיבה.
-        try {
-          await AppLogger.init(
-            Directory.systemTemp.path,
-            version: launcherVersion,
-          );
-          AppLogger.instance.error('מסך עצירה בעלייה (${e.kind.name}): $e');
-        } catch (_) {}
-        runApp(SetupErrorApp(error: e));
+        await _showSetupError(e);
         return;
       }
       final instanceLock = await InstanceLock.acquire(paths.stateFilesDir);
@@ -136,9 +124,14 @@ void main() {
       }
       // לפני טעינת ההגדרות: במצב קריאה הן נקראות מתיקיית המחשב, ובלי
       // ההעתקה הזו הרצה ראשונה שם הייתה מתחילה מברירות המחדל.
-      await paths.seedPreferences();
-      await paths.seedStateFromMachine();
-      await paths.migrateStateFiles();
+      try {
+        await paths.seedPreferences();
+        await paths.migrateStateFiles();
+        await paths.seedStateFromMachine();
+      } on AppPathsException catch (e) {
+        await _showSetupError(e);
+        return;
+      }
 
       // שני אלה נוגעים בדיסק ואינם תלויים זה בזה. בטור, על כונן USB איטי,
       // זה היה שני סבבי I/O לפני הפריים הראשון; במקביל — סבב אחד.
@@ -231,6 +224,15 @@ void main() {
       stackTrace,
     ),
   );
+}
+
+Future<void> _showSetupError(AppPathsException error) async {
+  debugPrint('$error');
+  try {
+    await AppLogger.init(Directory.systemTemp.path, version: launcherVersion);
+    AppLogger.instance.error('מסך עצירה בעלייה (${error.kind.name}): $error');
+  } catch (_) {}
+  runApp(SetupErrorApp(error: error));
 }
 
 /// מסגרת המערכת מוסתרת לפני `runApp`: שינוי המסגרת מבטל פריים שכבר צויר.

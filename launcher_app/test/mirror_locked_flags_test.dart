@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -165,25 +166,33 @@ void main() {
       Directory(p.join(drive.path, 'logs')).createSync(recursive: true);
       onMachine('library_state.json')
         ..createSync(recursive: true)
-        ..writeAsStringSync('machine');
+        ..writeAsStringSync('{"customDbPaths":{"machine":"local.db"}}');
 
       await locked().seedStateFromMachine();
 
-      expect(onDrive('library_state.json').readAsStringSync(), 'machine');
+      expect(jsonDecode(onDrive('library_state.json').readAsStringSync()), {
+        'customDbPaths': {'machine': 'local.db'},
+        'customDbPathsExplicit': <String, Object?>{},
+      });
       expect(onMachine('library_state.json').existsSync(), isTrue);
     });
 
-    test('קובץ שכבר בכונן אינו נדרס, גם אם בכונן אין מה של המחשב הזה',
-        () async {
+    test('רשומות מחשבים אחרים נשמרות, ורשומת המחשב הזה מצטרפת', () async {
       Directory(p.join(drive.path, 'logs')).createSync(recursive: true);
-      onDrive('library_state.json').writeAsStringSync('drive');
+      onDrive('library_state.json')
+          .writeAsStringSync('{"customDbPaths":{"online":"online.db"}}');
       onMachine('library_state.json')
         ..createSync(recursive: true)
-        ..writeAsStringSync('machine');
+        ..writeAsStringSync('{"customDbPaths":{"machine":"local.db"}}');
 
       await locked().seedStateFromMachine();
 
-      expect(onDrive('library_state.json').readAsStringSync(), 'drive');
+      final json = jsonDecode(onDrive('library_state.json').readAsStringSync())
+          as Map<String, dynamic>;
+      expect(json['customDbPaths'], {
+        'online': 'online.db',
+        'machine': 'local.db',
+      });
     });
 
     test('בלי mirrorLocked לא מעתיקים כלום', () async {

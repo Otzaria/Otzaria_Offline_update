@@ -2811,6 +2811,16 @@ class _SetupError extends SetupErrorStrings {
   @override
   String get systemDriveTitle => 'Run the program from a portable drive';
   @override
+  String get stateMigrationTitle =>
+      'Data transfer to the drive could not finish';
+  @override
+  String stateMigrationFailed(String details) =>
+      'The saved state and reports could not be safely transferred from this '
+      'computer to the drive. Your data has been kept; the transfer will resume '
+      'the next time you open the program. Check that the drive is connected and '
+      'its data folders can be read and written, then open the program again. '
+      'If this continues, send these details to support:\n$details';
+  @override
   String get macVolumeAccessDenied =>
       'macOS did not allow this program to write to the folder next to it. '
       'Open System Settings → Privacy & Security → Files and Folders (or Full '

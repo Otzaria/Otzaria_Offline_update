@@ -168,12 +168,13 @@ read, is deleted — except in read-only modes, §5.2):
 Inno writes to the machine, the library applier stages next to the existing DB,
 plugins go into Otzaria's own folder. Logs and machine state move to `stateDir`.
 `AppPaths.seedPreferences` seeds `launcher_settings.json` once. Machine state
-is never seeded. Read-only FAQ customizations use the per-drive local cache
-below (§5.3).
+is never seeded from the drive. Read-only FAQ customizations use the per-drive
+local cache below (§5.3).
 
 **State files live in `<stateDir>/logs/`, not the root.** `AppPaths.stateFileNames`
 (`otzaria_install_state`, `library_state`, `custom_apps_announced`,
-`plugins_known`, `notices_seen`) moved there to keep `OtzariaData` clean;
+`plugins_known`, `notices_seen`, `store_app_destination`) moved there to keep
+`OtzariaData` clean;
 `migrateStateFiles` runs in `main` before anything reads them — skipping it makes
 an existing install look new. Use `stateFilesDir`, never the logger's dir (it
 falls back to temp). Preferences stay in the root: they travel with the drive.
@@ -182,8 +183,8 @@ Everything that writes to the drive is off, with no prompt anywhere: `downloadAl
 the plugin sync, custom-app add/download, error-report collect/upload, the
 search-feedback sync, and self-update (it replaces the exe *on
 the drive*). `checkOnline` is skipped too — "there is something new online" with no
-way to bring it is nagging. Detection is free on the normal path: the mirror probe
-runs **only** after the write probe failed. An empty locked folder is still
+way to bring it is nagging. An existing `mirror/` gets its own write probe even
+when the root is writable. An empty locked folder is still
 `SetupErrorScreen` — nothing to install from means the wrong place.
 
 **Mirror locked, data open (#305).** The write probe is per folder: `mirror/`
@@ -200,10 +201,17 @@ copy is never moved or changed, and the online PC keeps using it. A drive
 whose data folders are missing or locked too falls back to plain read-only.
 `mirrorLocked` reflects `mirror/` itself (root locked + `mirror/` writable
 stays plain read-only). The `mirror/` probe retries 3 times (100/200 ms) so a
-transient AV/sharing failure on a writable drive never flips the run. When the
-drive first becomes `mirrorLocked`, `seedStateFromMachine` copies the machine's
-earlier read-only state files into the drive's `logs/` — only missing files,
-never moved. Costs: one probe file in `mirror/` on every normal start.
+transient AV/sharing failure has a chance to clear. A locked mirror without a
+manifest or a writable local profile stops; it must never fall back to writable
+mode. Costs: one probe file in `mirror/` on every normal start.
+
+**Entering `mirrorLocked` migrates records, not whole files.** Under the startup
+locks, `seedStateFromMachine` merges the six schemas and moves pending reports.
+Atomic checkpoints prevent stale state from returning and allow crash recovery;
+failure stops at `SetupErrorScreen` before stores or report flushing start.
+Record grouping, conflict policy, clock alignment and legacy locations are in
+`launcher_app/README.md` § "תיקיית הנתונים צמודה לתוכנה"; queue rules are in
+`error_reports_manager/README.md`. Machine state still follows §5.3.
 **The sha256-failed asset delete is off in both read-only states, by flag, not
 by the OS:** `LibraryManager(mirrorReadOnly:)` (launcher passes `readOnly`)
 makes `LibraryUpdateApplier` and `SemanticSearchAssets` keep the file and its

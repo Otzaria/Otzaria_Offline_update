@@ -1465,6 +1465,8 @@ abstract class SetupErrorStrings {
   String get runningFromTempTitle;
   String get systemDrive;
   String get systemDriveTitle;
+  String get stateMigrationTitle;
+  String stateMigrationFailed(String details);
 
   /// macOS (TCC) חסם כתיבה לתיקייה שליד התוכנה — EPERM, לא הרשאות קובץ.
   String get macVolumeAccessDenied;

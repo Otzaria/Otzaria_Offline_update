@@ -2683,6 +2683,14 @@ class _SetupError extends SetupErrorStrings {
   @override
   String get systemDriveTitle => 'יש להפעיל את התוכנה מכונן נייד';
   @override
+  String get stateMigrationTitle => 'לא הושלמה העברת הנתונים לכונן';
+  @override
+  String stateMigrationFailed(String details) =>
+      'לא ניתן להשלים בבטחה את העברת המצב והדוחות מהמחשב לכונן. '
+      'הנתונים נשמרו, וההעברה תימשך בהפעלה הבאה. '
+      'בדוק שהכונן מחובר ושאפשר לקרוא ולכתוב בתיקיות הנתונים, ואז הפעל שוב. '
+      'אם התקלה חוזרת, העבר לתמיכה את הפרטים הבאים:\n$details';
+  @override
   String get macVolumeAccessDenied =>
       'macOS לא אישר לתוכנה לכתוב לתיקייה שלצידה. יש לפתוח את הגדרות '
       'המערכת ← פרטיות ואבטחה ← קבצים ותיקיות (או גישה מלאה לדיסק), לאפשר '

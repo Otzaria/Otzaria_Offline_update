@@ -145,6 +145,94 @@ class AppReportService {
   String get _pendingDir => p.join(directory, 'pending');
   String get _sentPath => p.join(directory, 'sent.json');
 
+  /// Moves a previous queue before either service starts flushing or accepting edits.
+  /// A failed move must be retried before startup continues.
+  Future<void> migratePendingFrom(String sourceDirectory) async {
+    if (p.equals(p.absolute(directory), p.absolute(sourceDirectory))) return;
+    final source = AppReportService(
+      directory: sourceDirectory,
+      client: _client,
+    );
+    try {
+      final pending = await source._listPendingMeta();
+      if (pending.isEmpty) return;
+      final present = <String, List<_PendingMeta>>{};
+      for (final meta in await _listPendingMeta()) {
+        (present[meta.key] ??= []).add(meta);
+      }
+      final sent = await _readSentOrThrow(setAside: false, strict: true);
+      final sourceSent =
+          await source._readSentOrThrow(setAside: false, strict: true);
+      final sentIds = {
+        for (final report in [...sent.reports, ...sourceSent.reports])
+          report.reportId,
+      };
+      for (final meta in pending) {
+        final file = File(meta.path);
+        final incoming = await _readForMigration(meta);
+        final existing = present[meta.key] ?? const <_PendingMeta>[];
+        if (!sentIds.contains(incoming.reportId)) {
+          for (final duplicate in existing) {
+            final checked = await _readForMigration(duplicate);
+            if (checked.reportId != incoming.reportId ||
+                (checked.invalidField != null &&
+                    !_sameBytes(checked.bytes, incoming.bytes))) {
+              throw FormatException(
+                  'Conflicting pending report key', duplicate.path);
+            }
+          }
+        }
+        if (!sentIds.contains(incoming.reportId) && existing.isEmpty) {
+          final target = File(p.join(_pendingDir, p.basename(meta.path)));
+          await target.parent.create(recursive: true);
+          // Validation must not re-encode or strip attachments from the envelope.
+          await writeBytesAtomically(target.path, incoming.bytes);
+          present[meta.key] = [_PendingMeta.tryParse(target.path)!];
+        }
+        await file.delete();
+      }
+    } finally {
+      source.dispose();
+    }
+  }
+
+  static Future<({Uint8List bytes, String reportId, String? invalidField})>
+      _readForMigration(
+    _PendingMeta meta,
+  ) =>
+          Isolate.run(() {
+            final bytes = File(meta.path).readAsBytesSync();
+            final json = jsonDecode(utf8.decode(bytes));
+            if (json is! Map || json['report'] is! Map) {
+              throw FormatException('Invalid pending report', meta.path);
+            }
+            final fields = Map<String, dynamic>.from(json['report'] as Map);
+            final report = AppReport.fromJson(fields);
+            final images = fields['images'];
+            if (report.reportId.isEmpty ||
+                _fileKey(report.reportId) != meta.key ||
+                (images != null &&
+                    (images is! List ||
+                        images.length != report.images.length)) ||
+                (fields['minidump'] != null && report.minidump == null)) {
+              throw FormatException(
+                  'Invalid pending report contents', meta.path);
+            }
+            return (
+              bytes: bytes,
+              reportId: report.reportId,
+              invalidField: report.validate()
+            );
+          });
+
+  static bool _sameBytes(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
   /// שולח דיווח; בכשל זמני שומר אותו בתור.
   Future<AppReportDeliveryResult> send(AppReport report) => _withReportLock(
         report.reportId,
@@ -640,16 +728,18 @@ class AppReportService {
   /// חסר או פגום — היסטוריה ריקה (פגום מועבר ל-`.bad`); כשל קריאה זמני
   /// (למשל אנטי-וירוס שמחזיק את הקובץ) מנוסה שוב וזורק, כדי שכתיבה לא תמחק
   /// את ההיסטוריה והמונה.
-  Future<_SentHistory> _readSentOrThrow({required bool setAside}) async {
+  Future<_SentHistory> _readSentOrThrow(
+      {required bool setAside, bool strict = false}) async {
     final file = File(_sentPath);
     for (var attempt = 0;; attempt++) {
       try {
         if (!await file.exists()) return _SentHistory(0, []);
-        return _parseSent(await file.readAsString());
+        return _parseSent(await file.readAsString(), strict: strict);
       } on FileSystemException {
         if (attempt >= 2) rethrow;
         await Future<void>.delayed(Duration(milliseconds: 100 * (attempt + 1)));
       } catch (error) {
+        if (strict) rethrow;
         // כל שגיאת פענוח (גם TypeError משדה בסוג שגוי) היא קובץ פגום — אחרת
         // כל כתיבה נכשלת, ודיווחים שנשלחו נשלחים שוב כשכפילויות.
         log?.call('App report history corrupt: $error');
@@ -659,11 +749,21 @@ class AppReportService {
     }
   }
 
-  static _SentHistory _parseSent(String text) {
+  static _SentHistory _parseSent(String text, {bool strict = false}) {
     final json = jsonDecode(text);
     if (json is! Map) throw const FormatException('not a history object');
     final total = json['total'];
     final reports = json['reports'];
+    if (strict &&
+        (reports is! List ||
+            reports.any((r) =>
+                r is! Map ||
+                r['reportId'] is! String ||
+                (r['reportId'] as String).isEmpty ||
+                r['sentAt'] is! String ||
+                DateTime.tryParse(r['sentAt'] as String) == null))) {
+      throw const FormatException('Invalid report history');
+    }
     return _SentHistory(
       total is int ? total : 0,
       [
