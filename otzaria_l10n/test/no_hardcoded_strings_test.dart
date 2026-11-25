@@ -77,6 +77,9 @@ const _nameLiterals = <String>{
       'assets/יומן שינויים.md',
   'otzaria_manager/lib/src/services/running_otzaria_locator.dart|אוצריא',
   'library_manager/lib/src/services/companion_assets_installer.dart|תלמוד בבלי',
+  // תבנית שמזהה את שם המערכת בשם תוכנה — מתורגמת, לא הייתה תופסת "אוצריא".
+  'custom_apps_manager/lib/src/services/install_learner.dart|'
+      r'^[לשהובמכ]{0,3}(?:otzaria|אוצריא)$',
 };
 
 bool _isIdentifierChar(String c) =>
