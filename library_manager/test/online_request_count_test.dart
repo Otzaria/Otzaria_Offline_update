@@ -15,8 +15,12 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart'
     show
+        kSupportedDbSchemaVersion,
         LibraryRelease,
+        LibraryUpdatePlanKind,
         LocalMirrorLibraryReleaseClient,
+        OfflineLibraryUpdateDiscovery,
+        OfflineLibraryUpdatePlanner,
         DownloadScheduler,
         PatchDownloadCancelled,
         PatchDownloadException;
@@ -51,6 +55,9 @@ class _FullDirectory implements Directory {
 class _FakeGithub {
   final requests = <Uri>[];
   int libraryTo = 2;
+
+  /// קובצי עדכון מדלגים בגרסה האחרונה: `patch-v<from>-v<libraryTo>`.
+  final skipPatchesFrom = <int>{};
 
   /// `library-changes.md` לפי גרסה; `null` = רשום ברשימת הנכסים אך 404.
   final notes = <int, String?>{};
@@ -128,6 +135,11 @@ class _FakeGithub {
             if (to == libraryTo) 'seforim.db.zst',
             'patch-v${to - 1}-v$to.db.zst.manifest.json',
             'patch-v${to - 1}-v$to.db.zst',
+            if (to == libraryTo)
+              for (final from in skipPatchesFrom) ...[
+                'patch-v$from-v$to.db.zst.manifest.json',
+                'patch-v$from-v$to.db.zst',
+              ],
           ])
             _asset(name, 'https://lib/v$to-20261011/$name'),
           if (notes.containsKey(to))
@@ -809,6 +821,125 @@ void main() {
 
         expect(probed, total);
         expect(probed, lessThan(fullBytes!));
+      });
+    });
+
+    test('personal mode skips patches that start below the registered '
+        'version (issue #327)', () async {
+      await online(() async {
+        github
+          ..libraryTo = 4
+          ..skipPatchesFrom.addAll([1, 2]);
+        await LibraryStateStore(
+          p.join(dataDir, 'library_state.json'),
+        ).recordKnownDbVersion(await LibraryStateStore.currentMachineKey(), 3);
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          personalUpdateMode: true,
+        );
+        addTearDown(manager.dispose);
+
+        final probed = await manager.probeMirrorDownloadBytes();
+        int? total;
+        await manager.downloadToMirror(onBytesProgress: (_, t) => total = t);
+
+        final fetched = github.requests
+            .where((u) => u.host == 'lib')
+            .map((u) => u.pathSegments.last)
+            .toSet();
+        expect(fetched, {
+          'patch-v3-v4.db.zst.manifest.json',
+          'patch-v3-v4.db.zst',
+        });
+        final onDrive = Directory(manager.mirrorDir)
+            .listSync(recursive: true)
+            .whereType<File>()
+            .map((f) => p.basename(f.path))
+            .where((name) => name.startsWith('patch-'));
+        expect(onDrive, contains('patch-v3-v4.db.zst'));
+        expect(onDrive.where((name) => !name.startsWith('patch-v3-')), isEmpty);
+        expect(probed, total);
+      });
+    });
+
+    test('personal mode with two computers filters below the lower one, and '
+        'both keep a route to latest (issue #327)', () async {
+      await online(() async {
+        github
+          ..libraryTo = 5
+          ..skipPatchesFrom.addAll([1, 2, 3]);
+        final store = LibraryStateStore(p.join(dataDir, 'library_state.json'));
+        await store.recordKnownDbVersion('OFFLINE|a', 2);
+        await store.recordKnownDbVersion('OFFLINE|b', 4);
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          personalUpdateMode: true,
+        );
+        addTearDown(manager.dispose);
+
+        await manager.downloadToMirror();
+
+        final fetched = github.requests
+            .where((u) => u.host == 'lib')
+            .map((u) => u.pathSegments.last)
+            .toSet();
+        expect(fetched, isNot(contains('patch-v1-v5.db.zst')));
+        expect(fetched, isNot(contains('patch-v1-v5.db.zst.manifest.json')));
+        expect(fetched, contains('patch-v2-v5.db.zst'));
+
+        final discovery = await OfflineLibraryUpdateDiscovery(
+          client: LocalMirrorLibraryReleaseClient(mirrorDir: manager.mirrorDir),
+          supportedDbSchemaVersion: kSupportedDbSchemaVersion,
+        ).discover(allowPrerelease: false);
+        for (final local in [2, 4]) {
+          final plan = const OfflineLibraryUpdatePlanner().plan(
+            localVersion: local,
+            hasLocalVersionMeta: true,
+            latestVersion: discovery.latestVersion,
+            edges: discovery.edges,
+            latestFullDbAsset: discovery.latestFullDbAsset,
+            fullDbReleaseTag: discovery.fullDbReleaseTag,
+            latestFullDbVersion: discovery.latestFullDbVersion,
+          );
+          expect(plan.kind, LibraryUpdatePlanKind.delta, reason: 'v$local');
+          expect(plan.finalTargetVersion, 5, reason: 'v$local');
+        }
+      });
+    });
+
+    test('repairing a damaged drive in personal mode is a full export, with '
+        'patches from every version (issue #327)', () async {
+      await online(() async {
+        github
+          ..libraryTo = 4
+          ..skipPatchesFrom.addAll([1, 2]);
+        await LibraryStateStore(
+          p.join(dataDir, 'library_state.json'),
+        ).recordKnownDbVersion(await LibraryStateStore.currentMachineKey(), 4);
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          personalUpdateMode: true,
+        );
+        addTearDown(manager.dispose);
+        final releases = File(p.join(manager.mirrorDir, 'releases.json'));
+        await releases.parent.create(recursive: true);
+        await releases.writeAsBytes([0x52, 0x49, 0x46, 0x46, 0xFF, 0xFE]);
+
+        final outcome = await manager.downloadToMirror();
+
+        expect(outcome.repairedDamagedMirror, isTrue);
+
+        final fetched = github.requests
+            .where((u) => u.host == 'lib')
+            .map((u) => u.pathSegments.last)
+            .toSet();
+        expect(
+          fetched,
+          containsAll([
+            'patch-v1-v4.db.zst.manifest.json',
+            'patch-v2-v4.db.zst.manifest.json',
+          ]),
+        );
       });
     });
 

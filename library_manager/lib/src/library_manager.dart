@@ -28,6 +28,7 @@ import 'services/otzaria_instance_lock.dart';
 import 'services/otzaria_process_guard.dart';
 import 'services/otzaria_settings_reader.dart';
 import 'services/otzaria_settings_writer.dart';
+import 'services/personal_releases_client.dart';
 import 'services/readable_releases_client.dart';
 import 'services/readable_schema_limit.dart';
 import 'services/recent_library_releases_client.dart';
@@ -516,7 +517,7 @@ class LibraryManager {
     Future<bool> runExport(int? from) async {
       final exporter = LibraryMirrorExporter(
         supportedDbSchemaVersion: kSupportedDbSchemaVersion,
-        client: readable ?? _cloudClient,
+        client: _exportClient(readable ?? _cloudClient, from),
         scheduler: _scheduler,
         segmentThresholdBytes: _segmentThresholdBytes,
         connectionsForAsset: (destPath, size, sha256, resumeToken) =>
@@ -807,6 +808,13 @@ class LibraryManager {
 
   ({void Function() stop, Future<void> done})? _sizeProbe;
 
+  static GithubLibraryReleaseClient _exportClient(
+    GithubLibraryReleaseClient source,
+    int? fromVersion,
+  ) => fromVersion == null
+      ? source
+      : PersonalReleasesClient(source, fromVersion: fromVersion);
+
   /// כמה [downloadToMirror] יביא בפועל, בלי להוריד דבר: מריץ את התכנון של המנוע
   /// (קובצי התיאור בלבד) ועוצר כשהוא מכריז על היעד. null בכשל או אחרי [timeout].
   Future<int?> probeMirrorDownloadBytes({
@@ -823,7 +831,7 @@ class LibraryManager {
           : null;
       final exporter = LibraryMirrorExporter(
         supportedDbSchemaVersion: kSupportedDbSchemaVersion,
-        client: _cloudClient,
+        client: _exportClient(_cloudClient, fromVersion),
       );
       final export = () async {
         try {
@@ -1482,12 +1490,15 @@ class LibraryManager {
   /// [mirrorDownloadBytesBound] או [personalDownloadBytesBound]; `null` = אין חסם.
   Future<int?> peekedDownloadBytesBound() async {
     if (_mirroredReadableDbSchema != null) return null;
-    final releases = _peekedReleases;
+    final peeked = _peekedReleases;
     final companions = _companionsMirror.peekedPendingBytes;
-    if (releases == null || companions == null) return null;
+    if (peeked == null || companions == null) return null;
     final fromVersion = personalUpdateMode
         ? await recordedPersonalDbVersion()
         : null;
+    final releases = fromVersion == null
+        ? peeked
+        : withoutPatchesBelow(peeked, fromVersion);
     final exporter = LibraryMirrorExporter(
       supportedDbSchemaVersion: kSupportedDbSchemaVersion,
       client: _cloudClient,
