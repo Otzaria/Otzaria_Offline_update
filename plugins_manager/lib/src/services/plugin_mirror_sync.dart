@@ -121,6 +121,9 @@ class PluginMirrorSync {
           if ((isCancelled?.call() ?? false) || gate.tripped) return;
 
           var plugin = plan.plugin;
+          final clock = Stopwatch()..start();
+          var bytes = 0;
+          void addBytes(int size) => bytes += size;
           if (plan.needsNetwork) {
             done++;
             report(
@@ -153,8 +156,14 @@ class PluginMirrorSync {
             );
             return;
           }
-          final images =
-              await _syncImages(plan, plugin, report, cancelRequested, gate);
+          final images = await _syncImages(
+            plan,
+            plugin,
+            report,
+            cancelRequested,
+            gate,
+            addBytes,
+          );
           plugin = images.plugin;
           if (!images.complete && !cancelRequested()) {
             incompleteMedia.add(plugin.name);
@@ -166,12 +175,23 @@ class PluginMirrorSync {
             now,
             cancelRequested,
             gate,
+            addBytes,
           );
           plugin = files.plugin;
 
           fetched[plugin.id] = plugin;
           if (!files.ok) failed.add(plugin.name);
           versionMismatches.addAll(files.versionMismatches);
+          if (plan.needsNetwork && !cancelRequested() && !gate.tripped) {
+            report(
+              PluginSyncProgress(
+                phase: PluginSyncPhase.pluginFinished,
+                message: plugin.name,
+                bytes: bytes,
+                elapsed: clock.elapsed,
+              ),
+            );
+          }
         },
     ], maxConcurrent: maxConcurrentPlugins);
 
@@ -487,6 +507,7 @@ class PluginMirrorSync {
     void Function(PluginSyncProgress) report,
     bool Function() cancelled,
     _StorageGate gate,
+    void Function(int bytes) addBytes,
   ) async {
     var result = plugin;
     var complete = true;
@@ -504,6 +525,7 @@ class PluginMirrorSync {
           plugin.remoteImageUrl,
           p.join(dir, 'image'),
           checkCancelled: () => _throwIfCancelled(cancelled),
+          onBytesReceived: addBytes,
           rejection: _imageRejection,
         );
         result = result.copyWith(imagePath: store.relativePath(asset.path));
@@ -546,6 +568,7 @@ class PluginMirrorSync {
                 shotUrls[i],
                 p.join(dir, 'screenshot-$i'),
                 checkCancelled: () => _throwIfCancelled(cancelled),
+                onBytesReceived: addBytes,
                 rejection: _imageRejection,
               );
               downloaded[i] = store.relativePath(asset.path);
@@ -749,6 +772,7 @@ class PluginMirrorSync {
     DateTime now,
     bool Function() cancelled,
     _StorageGate gate,
+    void Function(int bytes) addBytes,
   ) async {
     if (plan.missingBuilds.isEmpty) {
       final known = plugin.anyLocalFile;
@@ -788,6 +812,7 @@ class PluginMirrorSync {
           expectedSize: target.fileSize,
           expectedSha256: target.sha256,
           checkCancelled: () => _throwIfCancelled(cancelled),
+          onBytesReceived: addBytes,
           rejection: (path) {
             manifest = PluginManifestReader.read(path);
             return buildRejection(manifest, target, manifestId);

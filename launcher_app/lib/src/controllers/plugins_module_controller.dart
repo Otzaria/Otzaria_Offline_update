@@ -11,6 +11,7 @@ import 'package:otzaria_manager/otzaria_manager.dart'
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../services/app_logger.dart';
+import '../services/byte_size.dart';
 import '../services/coalescing_loader.dart';
 import '../services/known_plugins_store.dart';
 import '../services/storage_failure.dart';
@@ -58,6 +59,13 @@ typedef PluginUpdateAllOutcome = ({
 enum PluginInstallFilter { all, newOnes, installed, notInstalled }
 
 enum PluginSortMode { recommended, newest, updated }
+
+(String, String, String) _pluginTimingParts(int bytes, Duration elapsed) {
+  final seconds = elapsed.inMilliseconds / 1000;
+  final rate =
+      seconds > 0 && bytes > 0 ? ' (${formatRate(bytes / seconds)})' : '';
+  return (formatBytes(bytes), seconds.toStringAsFixed(1), rate);
+}
 
 /// המרווח בין שתי מסירות רצופות של עדכוני תוספים.
 ///
@@ -724,11 +732,24 @@ class PluginsModuleController extends ChangeNotifier
     await Future<void>.value();
     notifyListeners();
 
+    final clock = Stopwatch()..start();
+    var syncedBytes = 0;
     try {
       final outcome = await _manager.sync(
         appVersions: await _appVersions(),
         isCancelled: isCancelled,
         onProgress: (progress) {
+          if (progress.phase == PluginSyncPhase.pluginFinished) {
+            syncedBytes += progress.bytes ?? 0;
+            final (size, seconds, rate) = _pluginTimingParts(
+              progress.bytes ?? 0,
+              progress.elapsed ?? Duration.zero,
+            );
+            AppLogger.instance.info(
+              'תוסף ${progress.message}: $size ב־$seconds שנ׳$rate',
+            );
+            return;
+          }
           syncMessage = progress.message;
           if (progress.phase == PluginSyncPhase.plugin &&
               progress.current != null) {
@@ -746,10 +767,12 @@ class PluginsModuleController extends ChangeNotifier
       );
       lastSyncOutcome = outcome;
       syncCause = outcome.storageFailure;
+      final (size, seconds, rate) =
+          _pluginTimingParts(syncedBytes, clock.elapsed);
+      final warnings =
+          syncWarnings.isEmpty ? '' : ':\n${syncWarnings.join('\n')}';
       AppLogger.instance.info(
-        'סנכרון התוספים: ${outcome.fetched} ירדו, '
-        '${outcome.skipped} דולגו, ${syncWarnings.length} אזהרות'
-        '${syncWarnings.isEmpty ? '' : ':\n${syncWarnings.join('\n')}'}',
+        'סנכרון התוספים: ${outcome.fetched} ירדו, ${outcome.skipped} דולגו, ${syncWarnings.length} אזהרות, $size ב־$seconds שנ׳$rate$warnings',
       );
       // ליומן בלבד: הבחירה עצמה שקופה למשתמש, אבל "למה התוסף הזה לא על
       // הכונן" חייב להיות ניתן לענות עליו.
