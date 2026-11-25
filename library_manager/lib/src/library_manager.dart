@@ -1979,6 +1979,7 @@ class LibraryManager {
           identityDigest: identity,
           needsBase: needsBase,
           generation: support.generation,
+          setGeneration: live?.generation,
         ),
       );
     } on Exception {
