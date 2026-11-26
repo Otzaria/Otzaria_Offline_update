@@ -293,12 +293,13 @@ void main() {
     });
   });
 
-  group('isBuildSuperseded', () {
+  group('supersedingBuilds', () {
     bool superseded(
       List<Map<String, dynamic>> versions,
       String version,
     ) =>
-        isBuildSuperseded(plugin(versions).versionEntries, version);
+        supersedingBuilds(plugin(versions).versionEntries, version)
+            .isNotEmpty;
 
     test('בילד חדש עם אותו טווח מחליף את הישן', () {
       final versions = [
@@ -307,6 +308,19 @@ void main() {
       ];
       expect(superseded(versions, '1.0.0'), isTrue);
       expect(superseded(versions, '2.0.0'), isFalse);
+    });
+
+    test('מוחזרים רק בילדים גבוהים יותר ובסדר יורד', () {
+      final entries = plugin([
+        build('3.0.0'),
+        build('2.0.0'),
+        build('1.5.0'),
+        build('1.0.0'),
+      ]).versionEntries;
+      expect(
+        supersedingBuilds(entries, '1.5.0').map((entry) => entry.version),
+        ['3.0.0', '2.0.0'],
+      );
     });
 
     test('בילד חדש פתוח לגמרי מכסה ישן סגור', () {

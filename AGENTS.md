@@ -1753,15 +1753,13 @@ newer Otzaria than the latest stable when this was written.
   `StorePlugin.localFiles` a `version -> file` map. Every sync stamps the builds it
   targets with `targetedAt`. A build this sync does not target is kept while it is
   still published and some sync targeted it within
-  `PluginMirrorSync.untargetedBuildRetention` (60 days; 7, `supersededBuildRetention`,
-  when a newer build covers its whole app range, #335): the installed version is a
-  per-machine fact, and two online machines on different Otzaria versions sharing a
-  drive would otherwise prune each other's build and re-download their own on every
-  sync. Past that window (or with no stamp, from an older catalog) it is deleted
-  (`pruneUnusedFiles`) so the drive does not accumulate a layer per Otzaria
-  update — but **never on a cancelled sync**, where the catalog is still the old one
-  and the cleanup would delete what did come down. A failed download keeps the older
-  build: an old build that runs beats nothing.
+  `PluginMirrorSync.untargetedBuildRetention` (60 days). Two machines on different
+  Otzaria versions must not prune each other's builds on every sync.
+  `supersededBuildRetention` (7 days since last target, #335) applies only after
+  downloads, when a verified higher build that covers the whole range will remain
+  in the mirror; a catalog entry alone cannot replace an offline file.
+  Past the applicable window (or with no stamp) `pruneUnusedFiles` deletes it.
+  Never prune on cancellation; a failed download keeps the older build.
 - **`versions[]` is stored in `catalog.json`.** The resolution must run on the offline
   machine against the Otzaria installed *there* — one drive serves several machines.
   The site's `?appVersion=` would bake one machine's answer into the mirror, so it is

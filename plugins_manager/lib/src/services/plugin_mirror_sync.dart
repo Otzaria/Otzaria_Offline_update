@@ -37,7 +37,7 @@ class PluginMirrorSync {
 
   static const Duration untargetedBuildRetention = Duration(days: 60);
 
-  /// בילד שבילד חדש יותר מכסה את כל טווח האוצריא שלו לא ייבחר לאף מחשב.
+  /// תקופת שמירה קצרה רק כשבילד מחליף תקין נשאר במראה.
   static const Duration supersededBuildRetention = Duration(days: 7);
 
   final PluginStoreClient client;
@@ -113,6 +113,7 @@ class PluginMirrorSync {
 
     final fetched = <String, StorePlugin>{};
     final failed = <String>[];
+    final failedIds = <String>{};
     final incompleteMedia = <String>[];
     final gate = _StorageGate();
     final versionMismatches = <String>[];
@@ -149,6 +150,7 @@ class PluginMirrorSync {
               return;
             }
             failed.add(plugin.name);
+            failedIds.add(plugin.id);
             report(
               PluginSyncProgress(
                 phase: PluginSyncPhase.warning,
@@ -184,7 +186,10 @@ class PluginMirrorSync {
           plugin = files.plugin;
 
           fetched[plugin.id] = plugin;
-          if (!files.ok) failed.add(plugin.name);
+          if (!files.ok) {
+            failed.add(plugin.name);
+            failedIds.add(plugin.id);
+          }
           versionMismatches.addAll(files.versionMismatches);
           if (plan.needsNetwork && !cancelRequested() && !gate.tripped) {
             report(
@@ -230,11 +235,35 @@ class PluginMirrorSync {
       home: structure.home,
     );
     Future<PluginCatalog> saveMerged() async {
-      final merged = _mergeConcurrentAdditions(
+      var merged = _mergeConcurrentAdditions(
         built,
         previousCatalog,
         await store.load(),
       );
+      if (!partial && !cancelRequested()) {
+        final cleaned = <StorePlugin>[
+          for (final plugin in merged.plugins)
+            if (cancelRequested() ||
+                failedIds.contains(plugin.id) ||
+                !plugin.hasValidId)
+              plugin
+            else
+              await _pruneSupersededBuilds(
+                plugin,
+                existing[plugin.id],
+                appVersions,
+                now,
+              ),
+        ];
+        if (!cancelRequested()) {
+          merged = PluginCatalog(
+            lastSync: merged.lastSync,
+            plugins: cleaned,
+            categories: merged.categories,
+            home: merged.home,
+          );
+        }
+      }
       await store.save(merged);
       return merged;
     }
@@ -256,7 +285,7 @@ class PluginMirrorSync {
       );
     }
 
-    if (!partial) {
+    if (!partial && !cancelRequested()) {
       for (final plugin in catalog.plugins) {
         if (!plugin.hasValidId) continue;
         await store.pruneUnusedFiles(plugin);
@@ -373,10 +402,7 @@ class PluginMirrorSync {
         if (wanted.contains(entry.key) || !published.contains(entry.key)) {
           continue;
         }
-        final window = isBuildSuperseded(plugin.versionEntries, entry.key)
-            ? supersededBuildRetention
-            : untargetedBuildRetention;
-        if (!_recentlyTargeted(entry.value, now, window: window)) continue;
+        if (!_recentlyTargeted(entry.value, now)) continue;
         if (await store.hasAsset(entry.value.relativePath)) {
           keep[entry.key] = entry.value;
         }
@@ -395,6 +421,87 @@ class PluginMirrorSync {
       isIncompatible: targets.isEmpty && plugin.remoteDownloadUrl.isNotEmpty,
       needsManifestId: plugin.manifestId == null && keep.isNotEmpty,
     );
+  }
+
+  Future<StorePlugin> _pruneSupersededBuilds(
+    StorePlugin plugin,
+    StorePlugin? previous,
+    List<String> appVersions,
+    DateTime now,
+  ) async {
+    if (plugin.localFiles.length < 2 || plugin.manifestId == null) {
+      return plugin;
+    }
+    final entries = plugin.versionEntries;
+    final wanted = {
+      for (final target in resolveTargets(entries, appVersions)) target.version,
+    };
+    if (wanted.isEmpty) return plugin;
+
+    final files = Map.of(plugin.localFiles);
+    final verified = <String, bool>{};
+    // מהגבוה לנמוך: בילד שנמחק בעצמו אינו יכול לשמש מחליף לבילד אחר.
+    for (final build in entries) {
+      final local = files[build.version];
+      if (local == null ||
+          wanted.contains(build.version) ||
+          _recentlyTargeted(local, now, window: supersededBuildRetention)) {
+        continue;
+      }
+      for (final higher in supersedingBuilds(entries, build.version)) {
+        if (!files.containsKey(higher.version)) continue;
+        var usable = verified[higher.version];
+        if (usable == null) {
+          usable = await _isVerifiedReplacement(higher, plugin, previous);
+          verified[higher.version] = usable;
+        }
+        if (usable) {
+          files.remove(build.version);
+          break;
+        }
+      }
+    }
+    return files.length == plugin.localFiles.length
+        ? plugin
+        : plugin.copyWith(localFiles: files);
+  }
+
+  Future<bool> _isVerifiedReplacement(
+    PluginVersionEntry target,
+    StorePlugin plugin,
+    StorePlugin? previous,
+  ) async {
+    if (target.downloadUrl.isEmpty) return false;
+    try {
+      final local = plugin.localFileFor(target.version);
+      if (local == null || !await store.hasInstallableBuild(local)) {
+        return false;
+      }
+      final expected = target.sha256;
+      if (expected != null) {
+        if (local.sha256 != null && local.sha256 != expected) return false;
+      } else {
+        final known = previous?.versionEntries
+            .where((entry) => entry.version == target.version)
+            .firstOrNull;
+        if (!buildMatches(
+          target,
+          local.sourceUrl ?? known?.downloadUrl ?? '',
+          local.size,
+          recordedSha256: local.sha256,
+        )) {
+          return false;
+        }
+      }
+      return await PluginBuildCheck.verifyLocal(
+        store.absolutePath(local.relativePath),
+        local: local,
+        target: target,
+        expectedId: plugin.manifestId,
+      );
+    } on FileSystemException {
+      return false;
+    }
   }
 
   /// מסנכרן את **מבנה** החנות — הקטגוריות המנוהלות והטקסטים של דף הבית.
