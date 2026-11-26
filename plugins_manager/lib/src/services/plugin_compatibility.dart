@@ -52,6 +52,26 @@ List<PluginVersionEntry> resolveTargets(
   return targets.values.toList(growable: false);
 }
 
+/// האם בילד גבוה יותר מכסה את כל טווח האוצריא של [version] — אז
+/// [resolveTargets] לא יבחר בו לאף גרסה. השוואה שמרנית: בספק, הוא נשאר.
+bool isBuildSuperseded(List<PluginVersionEntry> entries, String version) {
+  final build = entries.where((e) => e.version == version).firstOrNull;
+  if (build == null) return false;
+  for (final higher in entries) {
+    if (higher.version == version) return false;
+    final lowerOk = higher.compatibleWith.isEmpty ||
+        (build.compatibleWith.isNotEmpty &&
+            compareAppVersions(higher.compatibleWith, build.compatibleWith) <=
+                0);
+    final higherMax = higher.maxAppVersion ?? '';
+    final buildMax = build.maxAppVersion ?? '';
+    final upperOk = higherMax.isEmpty ||
+        (buildMax.isNotEmpty && compareAppVersions(higherMax, buildMax) >= 0);
+    if (lowerOk && upperOk) return true;
+  }
+  return false;
+}
+
 String? lowestSupportedAppVersion(List<PluginVersionEntry> entries) {
   String? lowest;
   for (final entry in entries) {

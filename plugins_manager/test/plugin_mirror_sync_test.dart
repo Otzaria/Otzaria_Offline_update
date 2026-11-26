@@ -1773,6 +1773,79 @@ void main() {
       );
     });
 
+    List<Map<String, dynamic>> site(String latest, List<String> older) => [
+          {
+            'id': 'a',
+            'name': 'אלף',
+            'version': latest,
+            'compatibleWith': '0.9.97',
+            'downloadUrl': '/api/plugins/a/download',
+            'versions': [
+              {
+                'version': latest,
+                'compatibleWith': '0.9.97',
+                'downloadUrl': '/api/plugins/a/download',
+                'isLatest': true,
+              },
+              for (final v in older)
+                {
+                  'version': v,
+                  'compatibleWith': '0.9.97',
+                  'downloadUrl': '/api/plugins/a@$v/download',
+                },
+            ],
+          },
+        ];
+
+    test('#335: בילד שהוחלף נשאר בתוך השבוע הראשון', () async {
+      await sync(_Site(plugins: site('2.0.0', [])), appVersions: ['0.9.97']);
+      final store = PluginMirrorStore(temp.path);
+      final old = File(store.absolutePath('files/a/plugin-2.0.0.otzplugin'));
+      await _ageTargets(
+        temp.path,
+        PluginMirrorSync.supersededBuildRetention - const Duration(days: 1),
+      );
+
+      await sync(
+        _Site(plugins: site('2.1.0', ['2.0.0'])),
+        appVersions: ['0.9.97'],
+      );
+
+      expect(old.existsSync(), isTrue);
+    });
+
+    test('#335: בילד שעדיין עשוי להיבחר נשאר אחרי שבוע', () async {
+      await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
+      final store = PluginMirrorStore(temp.path);
+      final old = File(store.absolutePath('files/a/plugin-1.5.0.otzplugin'));
+      await _ageTargets(
+        temp.path,
+        PluginMirrorSync.supersededBuildRetention + const Duration(days: 1),
+      );
+
+      await sync(_Site(plugins: versioned()), appVersions: ['0.9.97']);
+
+      expect(old.existsSync(), isTrue);
+    });
+
+    test('#335: בילד שבילד חדש מכסה את הטווח שלו נמחק אחרי שבוע', () async {
+      await sync(_Site(plugins: site('2.0.0', [])), appVersions: ['0.9.97']);
+      final store = PluginMirrorStore(temp.path);
+      final old = File(store.absolutePath('files/a/plugin-2.0.0.otzplugin'));
+      await _ageTargets(
+        temp.path,
+        PluginMirrorSync.supersededBuildRetention + const Duration(days: 1),
+      );
+
+      final catalog = await sync(
+        _Site(plugins: site('2.1.0', ['2.0.0'])),
+        appVersions: ['0.9.97'],
+      );
+
+      expect(catalog.plugins.single.localFiles.keys, ['2.1.0']);
+      expect(old.existsSync(), isFalse);
+    });
+
     test('אוצריא שעודכנה זה עתה — הבילד הקודם נשאר לתקופת החסד', () async {
       await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
       final store = PluginMirrorStore(temp.path);

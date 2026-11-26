@@ -292,4 +292,73 @@ void main() {
       );
     });
   });
+
+  group('isBuildSuperseded', () {
+    bool superseded(
+      List<Map<String, dynamic>> versions,
+      String version,
+    ) =>
+        isBuildSuperseded(plugin(versions).versionEntries, version);
+
+    test('בילד חדש עם אותו טווח מחליף את הישן', () {
+      final versions = [
+        build('2.0.0', compatibleWith: '0.9.97'),
+        build('1.0.0', compatibleWith: '0.9.97'),
+      ];
+      expect(superseded(versions, '1.0.0'), isTrue);
+      expect(superseded(versions, '2.0.0'), isFalse);
+    });
+
+    test('בילד חדש פתוח לגמרי מכסה ישן סגור', () {
+      expect(
+        superseded([
+          build('2.0.0'),
+          build('1.0.0', compatibleWith: '0.9.95', maxAppVersion: '0.9.96'),
+        ], '1.0.0'),
+        isTrue,
+      );
+    });
+
+    test('כיסוי חלקי אינו מחליף', () {
+      expect(
+        superseded([
+          build('2.0.0', compatibleWith: '0.9.97'),
+          build('1.0.0', compatibleWith: '0.9.95'),
+        ], '1.0.0'),
+        isFalse,
+      );
+      expect(
+        superseded([
+          build('2.0.0', compatibleWith: '0.9.95', maxAppVersion: '0.9.96'),
+          build('1.0.0', compatibleWith: '0.9.95'),
+        ], '1.0.0'),
+        isFalse,
+      );
+    });
+
+    test('רצפה ריקה בישן מול רצפה בחדש אינה מוחלפת', () {
+      expect(
+        superseded([
+          build('2.0.0', compatibleWith: '0.9.97'),
+          build('1.0.0'),
+        ], '1.0.0'),
+        isFalse,
+      );
+    });
+
+    test('hotfix מעל התקרה אינו מכוסה', () {
+      expect(
+        superseded([
+          build('2.0.0', compatibleWith: '0.9.95', maxAppVersion: '0.9.98'),
+          build('1.0.0', compatibleWith: '0.9.95', maxAppVersion: '0.9.98.1'),
+        ], '1.0.0'),
+        isFalse,
+      );
+    });
+
+    test('גרסה לא קיימת ורשומה יחידה אינן מוחלפות', () {
+      expect(superseded([build('1.0.0')], '1.0.0'), isFalse);
+      expect(superseded([build('2.0.0'), build('1.0.0')], '9.9.9'), isFalse);
+    });
+  });
 }
