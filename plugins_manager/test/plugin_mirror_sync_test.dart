@@ -34,7 +34,11 @@ Future<void> _dropMediaVersion(String root) async {
   );
 }
 
-Future<void> _ageTargets(String root, Duration age) async {
+Future<void> _ageTargets(
+  String root,
+  Duration age, {
+  String? version,
+}) async {
   final store = PluginMirrorStore(root);
   final old = await store.load();
   final when = DateTime.now().subtract(age);
@@ -48,7 +52,9 @@ Future<void> _ageTargets(String root, Duration age) async {
           plugin.copyWith(
             localFiles: {
               for (final entry in plugin.localFiles.entries)
-                entry.key: entry.value.copyWith(targetedAt: when),
+                entry.key: version == null || version == entry.key
+                    ? entry.value.copyWith(targetedAt: when)
+                    : entry.value,
             },
           ),
       ],
@@ -1796,6 +1802,169 @@ void main() {
             ],
           },
         ];
+
+    List<Map<String, dynamic>> splitSite() {
+      final result = site('3.0.0', ['2.0.0', '1.0.0']);
+      final plugin = result.single;
+      plugin['compatibleWith'] = '0.9.98';
+      final versions = plugin['versions'] as List<Map<String, dynamic>>;
+      versions.first['compatibleWith'] = '0.9.98';
+      for (final entry in versions.skip(1)) {
+        entry['maxAppVersion'] = '0.9.97';
+      }
+      return result;
+    }
+
+    const afterWeek = Duration(days: 8);
+
+    test('#335: מחליף בקטלוג שלא ירד אינו מוחק את הבילד הישן', () async {
+      await sync(_Site(plugins: site('1.0.0', [])), appVersions: ['0.9.97']);
+      await _ageTargets(temp.path, afterWeek);
+
+      final remote = _Site(plugins: splitSite());
+      final catalog = await sync(remote, appVersions: ['0.9.98']);
+      final plugin = catalog.plugins.single;
+      final store = PluginMirrorStore(temp.path);
+      expect(plugin.localFiles.keys.toSet(), {'1.0.0', '3.0.0'});
+      expect(plugin.installTarget('0.9.97')?.version, '1.0.0');
+      expect(await store.hasFileFor(plugin, '1.0.0'), isTrue);
+      expect(remote.requestsMatching('/download'), ['/api/plugins/a/download']);
+    });
+
+    test('#335: קישור הורדה חסר אינו מקצר את תקופת השמירה', () async {
+      await sync(_Site(plugins: site('1.0.0', [])), appVersions: ['0.9.97']);
+      await _ageTargets(temp.path, afterWeek);
+      final remote = site('2.0.0', ['1.0.0']);
+      remote.single['downloadUrl'] = '';
+      final versions = remote.single['versions'] as List<Map<String, dynamic>>;
+      versions.first['downloadUrl'] = '';
+
+      final catalog = await sync(
+        _Site(plugins: remote),
+        appVersions: ['0.9.97'],
+      );
+      final plugin = catalog.plugins.single;
+      expect(plugin.installTarget('0.9.97')?.version, '1.0.0');
+      expect(
+        await PluginMirrorStore(temp.path).hasFileFor(plugin, '1.0.0'),
+        isTrue,
+      );
+    });
+
+    test('#335: כשל בהורדת המחליף משאיר את הקובץ הישן', () async {
+      await sync(_Site(plugins: site('1.0.0', [])), appVersions: ['0.9.97']);
+      await _ageTargets(temp.path, afterWeek);
+      final failing = _Site(plugins: site('2.0.0', ['1.0.0']))
+        ..failures['/api/plugins/a/download'] = 500;
+
+      final outcome = await syncOutcome(failing, appVersions: ['0.9.97']);
+      final plugin = outcome.catalog.plugins.single;
+      expect(outcome.failed, isNotEmpty);
+      expect(plugin.localFiles.keys, ['1.0.0']);
+      expect(
+        await PluginMirrorStore(temp.path).hasFileFor(plugin, '1.0.0'),
+        isTrue,
+      );
+    });
+
+    for (final corrupt in [false, true]) {
+      test('#335: מחליף מקומי שאינו יעד סנכרון (פגום=$corrupt)', () async {
+        await sync(_Site(plugins: site('1.0.0', [])), appVersions: ['0.9.97']);
+        await sync(
+          _Site(plugins: site('2.0.0', ['1.0.0'])),
+          appVersions: ['0.9.97'],
+        );
+        await _ageTargets(temp.path, afterWeek);
+        final store = PluginMirrorStore(temp.path);
+        if (corrupt) {
+          final file = File(store.absolutePath('files/a/plugin-2.0.0.otzplugin'));
+          file.writeAsBytesSync(List<int>.filled(file.lengthSync(), 0));
+        }
+
+        final catalog = await sync(
+          _Site(plugins: splitSite()),
+          appVersions: ['0.9.98'],
+        );
+        final plugin = catalog.plugins.single;
+        expect(await store.hasFileFor(plugin, '1.0.0'), corrupt);
+        expect(plugin.localFiles.containsKey('1.0.0'), corrupt);
+        expect(await store.hasFileFor(plugin, '2.0.0'), isTrue);
+      });
+    }
+
+    test('#335: שינוי SHA-256 במחליף מקומי אינו מוחק את הישן', () async {
+      await sync(_Site(plugins: site('1.0.0', [])), appVersions: ['0.9.97']);
+      await sync(
+        _Site(plugins: site('2.0.0', ['1.0.0'])),
+        appVersions: ['0.9.97'],
+      );
+      await _ageTargets(temp.path, afterWeek);
+      final remote = splitSite();
+      final versions = remote.single['versions'] as List<Map<String, dynamic>>;
+      versions[1]['sha256'] = List<String>.filled(64, '0').join();
+
+      final catalog = await sync(
+        _Site(plugins: remote),
+        appVersions: ['0.9.98'],
+      );
+      final plugin = catalog.plugins.single;
+      expect(plugin.localFiles.keys.toSet(), {'1.0.0', '2.0.0', '3.0.0'});
+      expect(
+        await PluginMirrorStore(temp.path).hasFileFor(plugin, '1.0.0'),
+        isTrue,
+      );
+    });
+
+    test('#335: ביטול אחרי ההורדה אינו מקצר את תקופת השמירה', () async {
+      await sync(_Site(plugins: site('1.0.0', [])), appVersions: ['0.9.97']);
+      await _ageTargets(temp.path, afterWeek);
+      var cancelled = false;
+      final remote = _Site(plugins: site('2.0.0', ['1.0.0']))
+        ..beforeResponse = (path) async {
+          if (path == '/api/plugins/store-home') cancelled = true;
+        };
+
+      final catalog = await sync(
+        remote,
+        appVersions: ['0.9.97'],
+        isCancelled: () => cancelled,
+      );
+      final plugin = catalog.plugins.single;
+      expect(cancelled, isTrue);
+      expect(plugin.localFiles.keys.toSet(), {'1.0.0', '2.0.0'});
+      expect(
+        await PluginMirrorStore(temp.path).hasFileFor(plugin, '1.0.0'),
+        isTrue,
+      );
+    });
+
+    test('#335: מחליף שפג תוקפו בעצמו אינו משמש למחיקה', () async {
+      await sync(_Site(plugins: site('1.0.0', [])), appVersions: ['0.9.97']);
+      await sync(
+        _Site(plugins: site('2.0.0', ['1.0.0'])),
+        appVersions: ['0.9.97'],
+      );
+      await _ageTargets(temp.path, afterWeek);
+      await _ageTargets(
+        temp.path,
+        const Duration(days: 61),
+        version: '2.0.0',
+      );
+
+      final catalog = await sync(
+        _Site(plugins: splitSite()),
+        appVersions: ['0.9.98'],
+      );
+      final plugin = catalog.plugins.single;
+      final store = PluginMirrorStore(temp.path);
+      expect(plugin.localFiles.keys.toSet(), {'1.0.0', '3.0.0'});
+      expect(plugin.installTarget('0.9.97')?.version, '1.0.0');
+      expect(await store.hasFileFor(plugin, '1.0.0'), isTrue);
+      expect(
+        File(store.absolutePath('files/a/plugin-2.0.0.otzplugin')).existsSync(),
+        isFalse,
+      );
+    });
 
     test('#335: בילד שהוחלף נשאר בתוך השבוע הראשון', () async {
       await sync(_Site(plugins: site('2.0.0', [])), appVersions: ['0.9.97']);
