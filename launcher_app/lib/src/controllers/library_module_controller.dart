@@ -491,6 +491,17 @@ class LibraryModuleController extends ChangeNotifier
     await checkForUpdate(fresh: true);
   }
 
+  /// "הוספת מחשב ידנית" בהגדרות: מחשב שהכונן לא חובר אליו.
+  Future<void> registerMachineManually(String name, int version) async {
+    try {
+      await _manager.registerMachineManually(name: name, version: version);
+    } catch (e, st) {
+      AppLogger.instance.error('רישום מחשב ידנית נכשל', e, st);
+    }
+    _refreshDownloadSize();
+    await checkForUpdate(fresh: true);
+  }
+
   int _sizeRun = 0;
 
   /// מחשב את החסם מחדש אחרי שינוי מצב או רישום — מההצצה האחרונה בלבד, בלי

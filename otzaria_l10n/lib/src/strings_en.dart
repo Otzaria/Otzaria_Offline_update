@@ -1875,6 +1875,27 @@ class _Settings extends SettingsScreenStrings {
   String get personalRemoveThisBody =>
       'This computer will no longer update from the drive until it is '
       'registered again.';
+  @override
+  String get personalMachineAddButton => 'Add a computer manually';
+  @override
+  String get personalMachineAddTitle => 'Add a computer';
+  @override
+  String get personalMachineAddIntro =>
+      'To register a computer without connecting the drive to it: enter its '
+      'name and the library version installed on it. You can find the number '
+      'in Otzaria on that computer, under Settings > Library. The drive will '
+      'then download what that version is missing.';
+  @override
+  String get personalMachineAddNameLabel => 'Computer name';
+  @override
+  String get personalMachineAddVersionLabel => 'Library version (number)';
+  @override
+  String get personalMachineAddConfirm => 'Add';
+  @override
+  String get personalMachineAddNameRequired => 'Enter a name for the computer.';
+  @override
+  String get personalMachineAddVersionInvalid =>
+      'Enter a whole number greater than zero.';
 
   @override
   String get faqEditTitle => 'Edit the common questions';

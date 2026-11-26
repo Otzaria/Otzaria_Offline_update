@@ -1298,6 +1298,17 @@ class LibraryManager {
   Future<void> forgetRegisteredMachine(String machineKey) =>
       _stateStore.forgetKnownDbVersion(machineKey);
 
+  /// רישום מחשב שאינו כאן לפי שם וגרסת ספרייה, בלי לחבר אליו את הכונן.
+  /// אותו שם שוב מעדכן את הגרסה.
+  Future<void> registerMachineManually({
+    required String name,
+    required int version,
+  }) => _stateStore.recordKnownDbVersion(
+    LibraryStateStore.manualMachineKey(name),
+    version,
+    name: LibraryStateStore.normalizeMachineName(name),
+  );
+
   Future<int?> captureLocalDbVersion() async {
     final path = await currentDbPath();
     if (path == null) return null;

@@ -850,6 +850,13 @@ class AppSession extends ChangeNotifier {
     await _library.forgetMachine(machineKey);
   }
 
+  /// "הוספת מחשב ידנית" בהגדרות. הרישום האוטומטי שממתין כבר לא נחוץ: יש מחשב
+  /// שקובע מאיזו גרסה מורידים.
+  Future<void> registerMachineManually(String name, int version) async {
+    await _library.registerMachineManually(name, version);
+    await afterManualRegistration();
+  }
+
   /// אחרי "רישום המחשב הזה" (לחיצה מפורשת): הרישום האוטומטי כבר לא נחוץ.
   Future<void> afterManualRegistration() async {
     if (!await _library.hasNoRegisteredMachine()) await _clearAutoRegister();

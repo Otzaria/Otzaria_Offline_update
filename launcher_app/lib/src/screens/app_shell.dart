@@ -801,6 +801,10 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           onRegisterHere: s.longTaskRunning || s.otzaria.currentVersion == null
               ? null
               : _registerHere,
+          onAddMachine: s.longTaskRunning
+              ? null
+              : (name, version) =>
+                  unawaited(s.registerMachineManually(name, version)),
         ),
       ShellSection.help => HelpPage(
           faq: s.faq,

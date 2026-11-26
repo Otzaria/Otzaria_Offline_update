@@ -118,6 +118,8 @@ abstract final class ShellKeys {
   static const settingsPersonalMine = ValueKey('settings.personal.mine');
   static const settingsPersonalRegisterHere =
       ValueKey('settings.personal.registerHere');
+  static const settingsPersonalAddMachine =
+      ValueKey('settings.personal.addMachine');
   static const personalPendingNote = ValueKey('home.personal.pending');
 
   /// "הסרה" של מחשב שנרשם, לפי המפתח שלו בקובץ ה-state.

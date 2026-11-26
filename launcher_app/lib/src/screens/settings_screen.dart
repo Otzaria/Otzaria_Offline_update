@@ -48,6 +48,7 @@ class SettingsScreen extends StatelessWidget {
     this.onChoosePersonal,
     this.onRemoveMachine,
     this.onRegisterHere,
+    this.onAddMachine,
   });
 
   final SettingsController controller;
@@ -106,6 +107,9 @@ class SettingsScreen extends StatelessWidget {
 
   /// "רישום המחשב הזה" כשהוא לא ברשימה. `null` — בלי הכפתור.
   final VoidCallback? onRegisterHere;
+
+  /// "הוספת מחשב ידנית". `null` — בלי הכפתור.
+  final void Function(String name, int version)? onAddMachine;
 
   AppSettings get _s => controller.settings;
 
@@ -569,6 +573,17 @@ class SettingsScreen extends StatelessWidget {
               onPressed: readOnly ? null : onRegisterHere,
             ),
           ),
+        if (onAddMachine != null)
+          AppRow(
+            leading: icon,
+            title: t.personalMachineAddTitle,
+            trailing: ActionButton.neutral(
+              key: ShellKeys.settingsPersonalAddMachine,
+              text: t.personalMachineAddButton,
+              onPressed:
+                  readOnly ? null : () => unawaited(_addMachine(context)),
+            ),
+          ),
         if (readOnly)
           AppRow(
             title: mirrorLocked
@@ -577,6 +592,11 @@ class SettingsScreen extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  Future<void> _addMachine(BuildContext context) async {
+    final machine = await showAddMachineDialog(context);
+    if (machine != null) onAddMachine?.call(machine.name, machine.version);
   }
 
   /// ההסרה משנה מאיזו גרסה מורידים, ולכן באישור; למחשב הזה — בנוסח משלו.
