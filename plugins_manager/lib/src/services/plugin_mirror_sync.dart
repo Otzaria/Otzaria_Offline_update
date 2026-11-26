@@ -13,6 +13,7 @@ import '../models/store_plugin.dart';
 import 'download_pool.dart';
 import 'media_sniffer.dart';
 import 'plugin_build_check.dart';
+import 'plugin_compatibility.dart';
 import 'plugin_manifest_reader.dart';
 import 'plugin_mirror_store.dart';
 import 'plugin_store_client.dart';
@@ -35,6 +36,9 @@ class PluginMirrorSync {
   static const int defaultMaxConcurrentPlugins = 4;
 
   static const Duration untargetedBuildRetention = Duration(days: 60);
+
+  /// בילד שבילד חדש יותר מכסה את כל טווח האוצריא שלו לא ייבחר לאף מחשב.
+  static const Duration supersededBuildRetention = Duration(days: 7);
 
   final PluginStoreClient client;
   final PluginMirrorStore store;
@@ -369,7 +373,10 @@ class PluginMirrorSync {
         if (wanted.contains(entry.key) || !published.contains(entry.key)) {
           continue;
         }
-        if (!_recentlyTargeted(entry.value, now)) continue;
+        final window = isBuildSuperseded(plugin.versionEntries, entry.key)
+            ? supersededBuildRetention
+            : untargetedBuildRetention;
+        if (!_recentlyTargeted(entry.value, now, window: window)) continue;
         if (await store.hasAsset(entry.value.relativePath)) {
           keep[entry.key] = entry.value;
         }
@@ -612,10 +619,13 @@ class PluginMirrorSync {
           ? null
           : AppL10n.strings.pluginsDomain.downloadedFileNotImage;
 
-  static bool _recentlyTargeted(PluginLocalFile file, DateTime now) {
+  static bool _recentlyTargeted(
+    PluginLocalFile file,
+    DateTime now, {
+    Duration window = untargetedBuildRetention,
+  }) {
     final targetedAt = file.targetedAt;
-    return targetedAt != null &&
-        now.difference(targetedAt).abs() <= untargetedBuildRetention;
+    return targetedAt != null && now.difference(targetedAt).abs() <= window;
   }
 
   /// אותה כתובת, אותה גרסת תוסף, והקובץ עדיין על הדיסק. הגרסה נדרשת כי האתר

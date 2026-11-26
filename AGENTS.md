@@ -1753,7 +1753,8 @@ newer Otzaria than the latest stable when this was written.
   `StorePlugin.localFiles` a `version -> file` map. Every sync stamps the builds it
   targets with `targetedAt`. A build this sync does not target is kept while it is
   still published and some sync targeted it within
-  `PluginMirrorSync.untargetedBuildRetention` (60 days): the installed version is a
+  `PluginMirrorSync.untargetedBuildRetention` (60 days; 7, `supersededBuildRetention`,
+  when a newer build covers its whole app range, #335): the installed version is a
   per-machine fact, and two online machines on different Otzaria versions sharing a
   drive would otherwise prune each other's build and re-download their own on every
   sync. Past that window (or with no stamp, from an older catalog) it is deleted
