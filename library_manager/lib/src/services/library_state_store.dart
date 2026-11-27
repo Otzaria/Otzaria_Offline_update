@@ -112,12 +112,28 @@ class LibraryStateStore {
     return sha256.convert(utf8.encode(source)).toString().substring(0, 16);
   }
 
+  static const String manualKeyPrefix = 'manual|';
+  static const int maxMachineNameLength = 60;
+
+  /// שם מחשב ידני: רווחים מנורמלים ואורך מוגבל.
+  static String normalizeMachineName(String name) {
+    final clean = name.trim().replaceAll(RegExp(r'\s+'), ' ');
+    return clean.length <= maxMachineNameLength
+        ? clean
+        : clean.substring(0, maxMachineNameLength).trimRight();
+  }
+
+  /// מפתח של מחשב שנרשם ידנית, מובדל מ-hostname אמיתי ומקידומת נתיב ישן.
+  static String manualMachineKey(String name) =>
+      '$manualKeyPrefix${normalizeMachineName(name).toLowerCase()}';
+
   static final RegExp _digestKeyPattern = RegExp(r'^[0-9a-f]{16}\|');
 
   static bool isHostnameKey(String key) => !_digestKeyPattern.hasMatch(key);
 
-  static Duration staleAfter(String key) =>
-      Duration(days: isHostnameKey(key) ? 180 : 365);
+  static Duration staleAfter(String key) => Duration(
+    days: isHostnameKey(key) && !key.startsWith(manualKeyPrefix) ? 180 : 365,
+  );
 
   static final RegExp _machineIdPattern = RegExp(
     r'(?:MachineGuid\s+REG_SZ\s+|"IOPlatformUUID"\s*=\s*")'
@@ -503,12 +519,16 @@ class LibraryStateStore {
       orElse: () => machineKey,
     );
     final now = DateTime.now().toUtc();
-    final logicalNow = _logicalNow(
-      clock: _newest(existing.keys.map((key) => previousSeen[key])),
-      ownSeen: previousSeen[ownPrevious],
-      ownLocalTime: previousLocalTime[ownPrevious],
-      now: now,
-    );
+    final clock = _newest(existing.keys.map((key) => previousSeen[key]));
+    // רשומה ידנית אינה משעון של מחשב: לא מקדמים בה את השעון המשותף.
+    final logicalNow = machineKey.startsWith(manualKeyPrefix)
+        ? clock ?? now
+        : _logicalNow(
+            clock: clock,
+            ownSeen: previousSeen[ownPrevious],
+            ownLocalTime: previousLocalTime[ownPrevious],
+            now: now,
+          );
     final own = ownKeys.toSet();
     final hosts = own.map((key) => key.split('|').first).toSet();
     final versions = <String, dynamic>{};
@@ -615,6 +635,7 @@ class LibraryStateStore {
   }
 
   static bool _isLegacyPathKey(String key, Set<String> hosts) {
+    if (key.startsWith(manualKeyPrefix)) return false;
     final separator = key.indexOf('|');
     if (separator < 0) return false;
     if (!hosts.contains(key.substring(0, separator))) return false;

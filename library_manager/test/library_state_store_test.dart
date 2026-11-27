@@ -539,6 +539,81 @@ void main() {
     expect(await store.loadKnownDbVersions(), {'machine-a': 7, 'machine-b': 9});
   });
 
+  group('LibraryStateStore — רישום ידני (#336)', () {
+    test(
+      'מחשב שנרשם ידנית קובע את הגרסה הנמוכה, ושם אחד נרשם פעם אחת',
+      () async {
+        await store.recordKnownDbVersion('machine-a', 9);
+        await store.recordKnownDbVersion(
+          LibraryStateStore.manualMachineKey(' משרד '),
+          5,
+          name: 'משרד',
+        );
+        await store.recordKnownDbVersion(
+          LibraryStateStore.manualMachineKey('משרד'),
+          6,
+          name: 'משרד',
+        );
+
+        final machines = await store.liveRegisteredMachines();
+
+        expect(machines.map((m) => (m.name, m.version, m.isThisMachine)), [
+          ('משרד', 6, false),
+          (null, 9, false),
+        ]);
+        expect(await store.lowestKnownDbVersion(), 6);
+      },
+    );
+
+    test('שם עם / או \\ או .db אינו נמחק ברישום ידני נוסף (#336)', () async {
+      final names = ['משרד/קומה 2', r'בית\חדר', 'old.db'];
+      for (var i = 0; i < names.length; i++) {
+        await store.recordKnownDbVersion(
+          LibraryStateStore.manualMachineKey(names[i]),
+          10 + i,
+          name: names[i],
+        );
+      }
+      await store.recordKnownDbVersion(
+        LibraryStateStore.manualMachineKey('אחר'),
+        20,
+        name: 'אחר',
+      );
+
+      expect((await store.liveRegisteredMachines()).length, 4);
+    });
+
+    test('שם מנורמל: רווחים מתכווצים, אורך מוגבל, ואותיות גדולות זהות', () {
+      expect(
+        LibraryStateStore.manualMachineKey('  Beit   Midrash '),
+        LibraryStateStore.manualMachineKey('beit midrash'),
+      );
+      final long = LibraryStateStore.normalizeMachineName('א' * 200);
+      expect(long.length, LibraryStateStore.maxMachineNameLength);
+    });
+
+    test('מחשב ידני פג רק אחרי שנה, ו"הסרה" מוחקת אותו', () async {
+      expect(
+        LibraryStateStore.staleAfter(LibraryStateStore.manualMachineKey('בית')),
+        const Duration(days: 365),
+      );
+      final key = LibraryStateStore.manualMachineKey('בית');
+      await store.recordKnownDbVersion(key, 4, name: 'בית');
+
+      await store.forgetKnownDbVersion(key);
+
+      expect(await store.liveRegisteredMachines(), isEmpty);
+    });
+
+    test('מחשב שנרשם ידנית אינו נמחק כשמחשב אחר נרשם', () async {
+      final key = LibraryStateStore.manualMachineKey('בית');
+      await store.recordKnownDbVersion(key, 4, name: 'בית');
+      await store.recordOwnDbVersion(10);
+
+      expect((await store.loadKnownDbVersions())[key], 4);
+    });
+  });
+
   group('LibraryStateStore — גרסאות המסד שנרשמו', () {
     test('בלי רשומות — null, בלי לזרוק', () async {
       expect(await store.loadKnownDbVersions(), isEmpty);

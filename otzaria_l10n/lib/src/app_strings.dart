@@ -984,6 +984,14 @@ abstract class SettingsScreenStrings {
   String get personalRemoveTitle;
   String get personalRemoveBody;
   String get personalRemoveThisBody;
+  String get personalMachineAddButton;
+  String get personalMachineAddTitle;
+  String get personalMachineAddIntro;
+  String get personalMachineAddNameLabel;
+  String get personalMachineAddVersionLabel;
+  String get personalMachineAddConfirm;
+  String get personalMachineAddNameRequired;
+  String get personalMachineAddVersionInvalid;
 
   // ── מתקדם ──
   String get faqEditTitle;

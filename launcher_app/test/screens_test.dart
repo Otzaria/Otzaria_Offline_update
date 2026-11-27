@@ -1256,6 +1256,74 @@ void main() {
       expect(chosen, [true, false]);
     });
 
+    testWidgets('הוספת מחשב ידנית: שם וגרסה תקינים בלבד (#336)',
+        (tester) async {
+      await tester.runAsync(
+        () => settings.update(const AppSettings(personalUpdateMode: true)),
+      );
+      final added = <(String, int)>[];
+      await pumpScreen(
+        tester,
+        SettingsScreen(
+          controller: settings,
+          onOpenLog: () {},
+          launcherVersion: launcherVersion,
+          onAddMachine: (name, version) => added.add((name, version)),
+        ),
+      );
+      final t = stringsOf().settings;
+      final open = find.byKey(ShellKeys.settingsPersonalAddMachine);
+      await tester.ensureVisible(open);
+      await tester.tap(open);
+      await tester.pumpAndSettle();
+
+      Finder field(String label) => find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.bySemanticsLabel(label),
+          );
+      await tester.tap(find.text(t.personalMachineAddConfirm));
+      await tester.pumpAndSettle();
+      expect(find.text(t.personalMachineAddNameRequired), findsOneWidget);
+
+      await tester.enterText(
+        find
+            .descendant(
+              of: find.byType(AlertDialog),
+              matching: find.byType(TextField),
+            )
+            .first,
+        ' משרד ',
+      );
+      await tester.enterText(
+        find
+            .descendant(
+              of: find.byType(AlertDialog),
+              matching: find.byType(TextField),
+            )
+            .last,
+        '0',
+      );
+      await tester.tap(find.text(t.personalMachineAddConfirm));
+      await tester.pumpAndSettle();
+      expect(find.text(t.personalMachineAddVersionInvalid), findsOneWidget);
+      expect(added, isEmpty);
+
+      await tester.enterText(
+        find
+            .descendant(
+              of: find.byType(AlertDialog),
+              matching: find.byType(TextField),
+            )
+            .last,
+        '38',
+      );
+      await tester.tap(find.text(t.personalMachineAddConfirm));
+      await tester.pumpAndSettle();
+      expect(added, [('משרד', 38)]);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(field, isNotNull);
+    });
+
     testWidgets('מראה נעולה — רשימת המחשבים בנוסח "נעול לעדכונים"', (
       tester,
     ) async {

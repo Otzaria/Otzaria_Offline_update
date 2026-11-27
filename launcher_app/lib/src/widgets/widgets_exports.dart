@@ -2,6 +2,7 @@
 // לכללי השימוש.
 export '../l10n/app_strings_scope.dart';
 export 'action_buttons.dart';
+export 'add_machine_dialog.dart';
 export 'advanced_section.dart';
 export 'app_card.dart';
 export 'app_dialogs.dart';

@@ -1800,6 +1800,25 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get personalRemoveThisBody =>
       'המחשב הזה לא יתעדכן עוד מהכונן, עד שיירשם שוב.';
+  @override
+  String get personalMachineAddButton => 'הוספת מחשב ידנית';
+  @override
+  String get personalMachineAddTitle => 'הוספת מחשב';
+  @override
+  String get personalMachineAddIntro =>
+      'לרישום מחשב בלי לחבר אליו את הכונן: כתוב את שמו ואת מספר גרסת הספרייה '
+      'שמותקנת בו. את המספר אפשר לראות באוצריא שבאותו מחשב, בהגדרות > ספרייה. '
+      'מהמספר הזה יירד לכונן מה שחסר לו.';
+  @override
+  String get personalMachineAddNameLabel => 'שם המחשב';
+  @override
+  String get personalMachineAddVersionLabel => 'גרסת הספרייה (מספר)';
+  @override
+  String get personalMachineAddConfirm => 'הוספה';
+  @override
+  String get personalMachineAddNameRequired => 'יש לכתוב שם למחשב.';
+  @override
+  String get personalMachineAddVersionInvalid => 'יש לכתוב מספר שלם גדול מאפס.';
 
   @override
   String get faqEditTitle => 'עריכת השאלות הנפוצות';
